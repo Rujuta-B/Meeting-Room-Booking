@@ -1,0 +1,184 @@
+// prisma/schema.prisma
+//
+// WHY there is a hand-written SQL migration alongside this file:
+// Prisma's schema DSL has no concept of a PostgreSQL EXCLUDE constraint -
+// it only understands @unique, @@unique and @@index. The double-booking
+// guarantee (the whole point of this POC) is added as a *hand-written*
+// migration (prisma/migrations/<ts>_add_booking_exclusion_constraint/migration.sql)
+// that runs after the tables below are created. Prisma tracks that it ran
+// (in the _prisma_migrations table) but doesn't need to "understand" the
+// constraint - only Postgres does.
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" covers whatever platform runs `prisma generate` locally;
+  // "linux-musl-arm64-openssl-3.0.x" is added explicitly because the
+  // Docker image builds on Alpine (musl libc) on an arm64 host (Apple
+  // Silicon) - without it, Prisma Client is generated only for the build
+  // machine's own platform and the runtime container can't find a
+  // matching query engine binary.
+  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  bookings      Booking[]
+  bookingSeries BookingSeries[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+// Stored (HASHED) refresh tokens, so a refresh token can be revoked
+// server-side (logout, rotation after use) instead of just trusting a
+// stateless JWT for its whole lifetime. A pure-JWT refresh token can't be
+// invalidated early - once issued, it's valid until it expires, full stop.
+// Storing a hash (not the raw token) means a DB leak alone doesn't hand an
+// attacker usable tokens - same reasoning as hashing passwords.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @map("token_hash")
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Room {
+  id        String   @id @default(uuid())
+  name      String
+  location  String
+  capacity  Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  attributes RoomAttribute[]
+  bookings   Booking[]
+
+  @@index([capacity])
+  @@map("rooms")
+}
+
+// A lookup table of equipment/attributes (projector, whiteboard, ...) kept
+// normalized rather than a string[] column on Room, so:
+//   - the set of valid attributes is centrally editable (an admin adds
+//     "4K display" once, not by hand-editing every room row)
+//   - search filtering can use an indexed JOIN instead of scanning an
+//     array column on every row
+model Attribute {
+  id   String @id @default(uuid())
+  name String @unique
+
+  rooms RoomAttribute[]
+
+  @@map("attributes")
+}
+
+// Explicit many-to-many join model (rather than Prisma's "implicit m-n"
+// shortcut). Two reasons: (1) the raw SQL search query in rooms.service.ts
+// joins through this table by name, which is only possible if it's a real
+// table Prisma tells us about; (2) it's more transparent for someone new
+// to ORMs to see the join table Prisma would otherwise hide from you.
+model RoomAttribute {
+  roomId      String @map("room_id")
+  attributeId String @map("attribute_id")
+
+  room      Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  attribute Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, attributeId])
+  @@index([attributeId]) // supports "find rooms that have attribute X"
+  @@map("room_attributes")
+}
+
+// A recurring series is PURE METADATA - deliberately no time range or
+// status of its own. This is what makes "cancel one occurrence without
+// touching the rest of the series" structurally guaranteed rather than
+// something we have to carefully code around: there is nothing time-based
+// on this row that a single-occurrence cancellation could possibly disturb.
+// Each occurrence is its own independent Booking row (see below).
+model BookingSeries {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roomId          String   @map("room_id")
+  dayOfWeek       Int      @map("day_of_week") // 0=Sunday..6=Saturday - descriptive/regeneration only
+  startTimeOfDay  String   @map("start_time_of_day") // e.g. "10:00" - descriptive only
+  endTimeOfDay    String   @map("end_time_of_day") // e.g. "11:00" - descriptive only
+  occurrenceCount Int      @map("occurrence_count")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  bookings Booking[]
+
+  @@map("booking_series")
+}
+
+model Booking {
+  id     String @id @default(uuid())
+  roomId String @map("room_id")
+  room   Room   @relation(fields: [roomId], references: [id])
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Nullable: most bookings are one-off, not part of a series, so we don't
+  // want to force a throwaway BookingSeries row into existence for every
+  // single booking just to satisfy a NOT NULL constraint.
+  seriesId String?        @map("series_id")
+  series   BookingSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+
+  // Two plain timestamptz columns, NOT a Postgres range column. Prisma has
+  // no native range type, so a stored range would be invisible to the
+  // Prisma client for every normal query (listing bookings, ownership
+  // checks, etc). The range only needs to exist *inside* the exclusion
+  // constraint's expression (built inline as tstzrange(start_time, end_time)
+  // in the raw migration SQL) - these two columns are the source of truth,
+  // fully queryable, and never go out of sync with a derived column because
+  // there isn't one.
+  startTime DateTime @map("start_time")
+  endTime   DateTime @map("end_time")
+
+  // Soft-cancel, not hard-delete. Cancelling sets status='CANCELLED'; the
+  // row stays forever as an audit trail (the docs require evidence for "did
+  // someone else steal my room" disputes - a deleted row proves nothing).
+  // This is also WHY the exclusion constraint added in the raw-SQL
+  // migration must be *partial* (WHERE status = 'CONFIRMED'): a plain
+  // constraint would treat a cancelled row as still occupying its slot
+  // forever, which would break "freed time must be immediately bookable."
+  status BookingStatus @default(CONFIRMED)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Backs the availability-search read path: "find CONFIRMED bookings for
+  // room X overlapping [start,end)". This is a plain B-tree index for
+  // READS. It is a different index, serving a different purpose, from the
+  // GiST index Postgres auto-creates for the EXCLUDE constraint (which
+  // guards WRITES) - two separate jobs, worth being able to explain apart.
+  @@index([roomId, status, startTime, endTime])
+  @@index([userId]) // "my bookings" + ownership-check lookups
+  @@index([seriesId])
+  @@map("bookings")
+}

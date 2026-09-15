@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    // NodeNext + ESM: matches "type": "module" in package.json, and is the
+    // direction Node/TypeScript tooling has settled on - learning this now
+    // avoids picking up the older CommonJS-only mental model.
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+
+    "outDir": "dist",
+    "rootDir": "src",
+
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+
+    "declaration": false,
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "tests"]
+}

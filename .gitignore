@@ -1,0 +1,9 @@
+# root .gitignore - covers both api/ and web/
+node_modules/
+dist/
+build/
+.env
+.env.test
+!.env.example
+*.log
+.DS_Store
