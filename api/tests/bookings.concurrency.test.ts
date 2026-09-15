@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createTestApp } from './helpers/testApp.js';
-import { createTestUser, createTestRoom, resetDatabase } from './helpers/factories.js';
+import { createTestUser, createTestRoom, resetDatabase, daysFromNow } from './helpers/factories.js';
 
 const app = createTestApp();
 
@@ -23,8 +23,8 @@ describe('concurrent overlapping bookings', () => {
 
     const payload = {
       roomId: room.id,
-      startTime: '2026-03-10T10:00:00.000Z',
-      endTime: '2026-03-10T11:00:00.000Z',
+      startTime: daysFromNow(10, '10:00'),
+      endTime: daysFromNow(10, '11:00'),
     };
 
     // WHY Promise.all, and NOT two sequential `await`s: a sequential test
@@ -81,11 +81,11 @@ describe('concurrent overlapping bookings', () => {
       request(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userA.accessToken}`)
-        .send({ roomId: room.id, startTime: '2026-03-10T10:00:00.000Z', endTime: '2026-03-10T11:00:00.000Z' }),
+        .send({ roomId: room.id, startTime: daysFromNow(10, '10:00'), endTime: daysFromNow(10, '11:00') }),
       request(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userB.accessToken}`)
-        .send({ roomId: room.id, startTime: '2026-03-10T11:00:00.000Z', endTime: '2026-03-10T12:00:00.000Z' }),
+        .send({ roomId: room.id, startTime: daysFromNow(10, '11:00'), endTime: daysFromNow(10, '12:00') }),
     ]);
 
     // Back-to-back, non-overlapping (11:00 end == 11:00 start uses the

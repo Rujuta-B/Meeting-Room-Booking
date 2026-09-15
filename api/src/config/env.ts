@@ -45,7 +45,11 @@ const envSchema = z.object({
   // can never be '*'.
   WEB_ORIGIN: z.string().url().default('http://localhost:5173'),
 
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  // 'silent' is a real pino level (disables logging entirely) - included
+  // here because api/.env.test.example ships LOG_LEVEL=silent for quiet
+  // test runs; omitting it from this enum would make the documented test
+  // config fail startup validation.
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
 const parsed = envSchema.safeParse(process.env);

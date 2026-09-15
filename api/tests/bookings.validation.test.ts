@@ -7,7 +7,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createTestApp } from './helpers/testApp.js';
-import { createTestUser, createTestRoom, resetDatabase } from './helpers/factories.js';
+import { createTestUser, createTestRoom, resetDatabase, daysFromNow } from './helpers/factories.js';
+import { prisma } from '../src/prisma/client.js';
+import { randomUUID } from 'node:crypto';
 
 const app = createTestApp();
 
@@ -23,7 +25,7 @@ describe('booking input validation', () => {
     const res = await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: room.id, startTime: '2026-05-01T11:00:00.000Z', endTime: '2026-05-01T10:00:00.000Z' });
+      .send({ roomId: room.id, startTime: daysFromNow(5, '11:00'), endTime: daysFromNow(5, '10:00') });
 
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -36,7 +38,7 @@ describe('booking input validation', () => {
     const res = await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: crypto.randomUUID(), startTime: '2026-05-01T10:00:00.000Z', endTime: '2026-05-01T11:00:00.000Z' });
+      .send({ roomId: crypto.randomUUID(), startTime: daysFromNow(5, '10:00'), endTime: daysFromNow(5, '11:00') });
 
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
@@ -48,7 +50,7 @@ describe('booking input validation', () => {
     const res = await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: 'not-a-uuid', startTime: '2026-05-01T10:00:00.000Z', endTime: '2026-05-01T11:00:00.000Z' });
+      .send({ roomId: 'not-a-uuid', startTime: daysFromNow(5, '10:00'), endTime: daysFromNow(5, '11:00') });
 
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -67,17 +69,28 @@ describe('booking input validation', () => {
     const room = await createTestRoom();
     const user = await createTestUser();
 
-    // A booking that started in the past relative to "now" at test time.
+    // A booking that has already started can never be CREATED directly
+    // through POST /bookings (CreateBookingSchema rejects any startTime
+    // that isn't in the future) - so the only realistic way such a row
+    // exists is a booking that WAS in the future at creation time and has
+    // since elapsed. Inserted directly via Prisma to simulate exactly that,
+    // rather than waiting in real time for a freshly-created booking to
+    // start.
     const past = new Date(Date.now() - 60 * 60 * 1000);
     const pastEnd = new Date(Date.now() + 60 * 60 * 1000);
-    const created = await request(app)
-      .post('/bookings')
-      .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: room.id, startTime: past.toISOString(), endTime: pastEnd.toISOString() });
-    expect(created.status).toBe(201);
+    const booking = await prisma.booking.create({
+      data: {
+        id: randomUUID(),
+        roomId: room.id,
+        userId: user.id,
+        startTime: past,
+        endTime: pastEnd,
+        status: 'CONFIRMED',
+      },
+    });
 
     const cancelRes = await request(app)
-      .delete(`/bookings/${created.body.booking.id}`)
+      .delete(`/bookings/${booking.id}`)
       .set('Authorization', `Bearer ${user.accessToken}`);
 
     expect(cancelRes.status).toBe(409);
@@ -97,14 +110,14 @@ describe('booking input validation', () => {
     const created = await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: room.id, startTime: '2026-05-01T10:00:00.000Z', endTime: '2026-05-01T11:00:00.000Z' });
+      .send({ roomId: room.id, startTime: daysFromNow(5, '10:00'), endTime: daysFromNow(5, '11:00') });
     expect(created.status).toBe(201);
 
     // Attempt to move the end time LATER, not earlier.
     const extendRes = await request(app)
       .patch(`/bookings/${created.body.booking.id}/shorten`)
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ endTime: '2026-05-01T12:00:00.000Z' });
+      .send({ endTime: daysFromNow(5, '12:00') });
 
     expect(extendRes.status).toBe(400);
     expect(extendRes.body.error.code).toBe('VALIDATION_ERROR');
@@ -112,7 +125,7 @@ describe('booking input validation', () => {
     // And confirm the booking's endTime was NOT actually changed.
     const listRes = await request(app).get('/bookings/me').set('Authorization', `Bearer ${user.accessToken}`);
     const booking = listRes.body.bookings.find((b: { id: string }) => b.id === created.body.booking.id);
-    expect(booking.endTime).toBe('2026-05-01T11:00:00.000Z');
+    expect(booking.endTime).toBe(new Date(daysFromNow(5, '11:00')).toISOString());
   });
 
   it('rejects a "shorten" request with the same endTime as the current one (no-op is not a valid shorten)', async () => {
@@ -122,12 +135,12 @@ describe('booking input validation', () => {
     const created = await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: room.id, startTime: '2026-05-01T10:00:00.000Z', endTime: '2026-05-01T11:00:00.000Z' });
+      .send({ roomId: room.id, startTime: daysFromNow(5, '10:00'), endTime: daysFromNow(5, '11:00') });
 
     const res = await request(app)
       .patch(`/bookings/${created.body.booking.id}/shorten`)
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ endTime: '2026-05-01T11:00:00.000Z' });
+      .send({ endTime: daysFromNow(5, '11:00') });
 
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -140,14 +153,14 @@ describe('booking input validation', () => {
     const created = await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: room.id, startTime: '2026-05-01T10:00:00.000Z', endTime: '2026-05-01T11:00:00.000Z' });
+      .send({ roomId: room.id, startTime: daysFromNow(5, '10:00'), endTime: daysFromNow(5, '11:00') });
 
     const res = await request(app)
       .patch(`/bookings/${created.body.booking.id}/shorten`)
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ endTime: '2026-05-01T10:30:00.000Z' });
+      .send({ endTime: daysFromNow(5, '10:30') });
 
     expect(res.status).toBe(200);
-    expect(res.body.booking.endTime).toBe('2026-05-01T10:30:00.000Z');
+    expect(res.body.booking.endTime).toBe(new Date(daysFromNow(5, '10:30')).toISOString());
   });
 });

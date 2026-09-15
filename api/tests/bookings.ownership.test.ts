@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createTestApp } from './helpers/testApp.js';
-import { createTestUser, createTestRoom, resetDatabase } from './helpers/factories.js';
+import { createTestUser, createTestRoom, resetDatabase, daysFromNow } from './helpers/factories.js';
 
 const app = createTestApp();
 
@@ -20,7 +20,7 @@ async function createBookingAs(token: string, roomId: string) {
   const res = await request(app)
     .post('/bookings')
     .set('Authorization', `Bearer ${token}`)
-    .send({ roomId, startTime: '2026-05-01T10:00:00.000Z', endTime: '2026-05-01T11:00:00.000Z' });
+    .send({ roomId, startTime: daysFromNow(5, '10:00'), endTime: daysFromNow(5, '11:00') });
   return res.body.booking;
 }
 
@@ -46,7 +46,7 @@ describe('booking ownership enforcement', () => {
     const res = await request(app)
       .patch(`/bookings/${booking.id}/shorten`)
       .set('Authorization', `Bearer ${attacker.accessToken}`)
-      .send({ endTime: '2026-05-01T10:30:00.000Z' });
+      .send({ endTime: daysFromNow(5, '10:30') });
 
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('FORBIDDEN');
@@ -72,11 +72,22 @@ describe('booking ownership enforcement', () => {
     expect(res.status).toBe(204);
   });
 
+  it('includes the room name/location alongside each booking in /bookings/me', async () => {
+    const room = await createTestRoom({ name: 'Sunflower', location: 'Floor 3' });
+    const owner = await createTestUser();
+    await createBookingAs(owner.accessToken, room.id);
+
+    const res = await request(app).get('/bookings/me').set('Authorization', `Bearer ${owner.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.bookings[0].room).toEqual({ name: 'Sunflower', location: 'Floor 3' });
+  });
+
   it('rejects every booking mutation with no auth token at all (no anonymous path)', async () => {
     const room = await createTestRoom();
     const createRes = await request(app)
       .post('/bookings')
-      .send({ roomId: room.id, startTime: '2026-05-01T10:00:00.000Z', endTime: '2026-05-01T11:00:00.000Z' });
+      .send({ roomId: room.id, startTime: daysFromNow(5, '10:00'), endTime: daysFromNow(5, '11:00') });
     expect(createRes.status).toBe(401);
 
     const cancelRes = await request(app).delete(`/bookings/${crypto.randomUUID()}`);

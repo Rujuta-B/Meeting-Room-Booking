@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createTestApp } from './helpers/testApp.js';
-import { createTestUser, createTestRoom, resetDatabase } from './helpers/factories.js';
+import { createTestUser, createTestRoom, resetDatabase, daysFromNow } from './helpers/factories.js';
 import { prisma } from '../src/prisma/client.js';
 
 const app = createTestApp();
@@ -24,12 +24,12 @@ describe('room availability search', () => {
     await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: room.id, startTime: '2026-07-01T10:00:00.000Z', endTime: '2026-07-01T11:00:00.000Z' });
+      .send({ roomId: room.id, startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00') });
 
     const res = await request(app)
       .get('/rooms/search')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .query({ startTime: '2026-07-01T10:30:00.000Z', endTime: '2026-07-01T10:45:00.000Z', minCapacity: 1 });
+      .query({ startTime: daysFromNow(20, '10:30'), endTime: daysFromNow(20, '10:45'), minCapacity: 1 });
 
     expect(res.status).toBe(200);
     expect(res.body.rooms.find((r: { id: string }) => r.id === room.id)).toBeUndefined();
@@ -42,14 +42,14 @@ describe('room availability search', () => {
     await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: room.id, startTime: '2026-07-01T10:00:00.000Z', endTime: '2026-07-01T11:00:00.000Z' });
+      .send({ roomId: room.id, startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00') });
 
     const res = await request(app)
       .get('/rooms/search')
       .set('Authorization', `Bearer ${user.accessToken}`)
       // Requests the slot right after the existing booking ends - '[)' bound
       // means 11:00-12:00 does NOT overlap a booking ending at 11:00.
-      .query({ startTime: '2026-07-01T11:00:00.000Z', endTime: '2026-07-01T12:00:00.000Z', minCapacity: 1 });
+      .query({ startTime: daysFromNow(20, '11:00'), endTime: daysFromNow(20, '12:00'), minCapacity: 1 });
 
     expect(res.status).toBe(200);
     expect(res.body.rooms.find((r: { id: string }) => r.id === room.id)).toBeDefined();
@@ -62,14 +62,14 @@ describe('room availability search', () => {
     const created = await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: room.id, startTime: '2026-07-01T10:00:00.000Z', endTime: '2026-07-01T11:00:00.000Z' });
+      .send({ roomId: room.id, startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00') });
 
     await request(app).delete(`/bookings/${created.body.booking.id}`).set('Authorization', `Bearer ${user.accessToken}`);
 
     const res = await request(app)
       .get('/rooms/search')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .query({ startTime: '2026-07-01T10:00:00.000Z', endTime: '2026-07-01T11:00:00.000Z', minCapacity: 1 });
+      .query({ startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00'), minCapacity: 1 });
 
     expect(res.body.rooms.find((r: { id: string }) => r.id === room.id)).toBeDefined();
   });
@@ -82,7 +82,7 @@ describe('room availability search', () => {
     const res = await request(app)
       .get('/rooms/search')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .query({ startTime: '2026-07-01T10:00:00.000Z', endTime: '2026-07-01T11:00:00.000Z', minCapacity: 10 });
+      .query({ startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00'), minCapacity: 10 });
 
     const ids = res.body.rooms.map((r: { id: string }) => r.id);
     expect(ids).not.toContain(smallRoom.id);
@@ -109,8 +109,8 @@ describe('room availability search', () => {
       .get('/rooms/search')
       .set('Authorization', `Bearer ${user.accessToken}`)
       .query({
-        startTime: '2026-07-01T10:00:00.000Z',
-        endTime: '2026-07-01T11:00:00.000Z',
+        startTime: daysFromNow(20, '10:00'),
+        endTime: daysFromNow(20, '11:00'),
         minCapacity: 1,
         attributes: `${projector.name},${whiteboard.name}`,
       });
@@ -120,13 +120,28 @@ describe('room availability search', () => {
     expect(ids).not.toContain(roomWithOne.id);
   });
 
+  it('includes each room\'s attribute names in the search response', async () => {
+    const user = await createTestUser();
+    const projector = await prisma.attribute.create({ data: { name: `projector-${Date.now()}` } });
+    const room = await createTestRoom();
+    await prisma.roomAttribute.create({ data: { roomId: room.id, attributeId: projector.id } });
+
+    const res = await request(app)
+      .get('/rooms/search')
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .query({ startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00'), minCapacity: 1 });
+
+    const found = res.body.rooms.find((r: { id: string }) => r.id === room.id);
+    expect(found.attributes).toContain(projector.name);
+  });
+
   it('rejects a search where endTime is before startTime', async () => {
     const user = await createTestUser();
 
     const res = await request(app)
       .get('/rooms/search')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .query({ startTime: '2026-07-01T11:00:00.000Z', endTime: '2026-07-01T10:00:00.000Z' });
+      .query({ startTime: daysFromNow(20, '11:00'), endTime: daysFromNow(20, '10:00') });
 
     expect(res.status).toBe(400);
   });

@@ -43,6 +43,10 @@ export interface BookingRecord {
   status: 'CONFIRMED' | 'CANCELLED';
 }
 
+export interface BookingWithRoom extends BookingRecord {
+  room: { name: string; location: string };
+}
+
 async function assertRoomExists(roomId: string): Promise<void> {
   // A well-formed but nonexistent room id is exactly the case the spec
   // calls out: "a reference to a room that doesn't exist should be
@@ -85,10 +89,13 @@ export async function createBooking(userId: string, input: CreateBookingInput, s
   };
 }
 
-export async function listMyBookings(userId: string): Promise<BookingRecord[]> {
+// Includes the related room's name/location - a user with bookings across
+// multiple rooms otherwise can't tell them apart in a plain time-only list.
+export async function listMyBookings(userId: string): Promise<BookingWithRoom[]> {
   return prisma.booking.findMany({
     where: { userId },
     orderBy: { startTime: 'asc' },
+    include: { room: { select: { name: true, location: true } } },
   });
 }
 

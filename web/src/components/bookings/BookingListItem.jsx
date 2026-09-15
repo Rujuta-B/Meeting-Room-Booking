@@ -4,7 +4,7 @@ import { formatDateTime, toIsoDateTime, fromIsoDateTime } from '../../lib/dateRa
 
 /**
  * @param {{
- *   booking: { id: string, startTime: string, endTime: string, status: string },
+ *   booking: { id: string, startTime: string, endTime: string, status: string, room?: { name: string, location: string } },
  *   isSeriesMember: boolean,
  *   onCancel?: (bookingId: string) => void,
  *   onShorten?: (bookingId: string, newEndTime: string) => void,
@@ -42,6 +42,11 @@ export function BookingListItem({ booking, isSeriesMember, onCancel, onShorten, 
   return (
     <li className={`booking-item ${isCancelled ? 'booking-item-cancelled' : ''}`}>
       <div className="booking-item-details">
+        {booking.room && (
+          <span className="booking-item-room">
+            {booking.room.name} — {booking.room.location}
+          </span>
+        )}
         <strong>{formatDateTime(booking.startTime)}</strong> – {formatDateTime(booking.endTime)}
         {isCancelled && <span className="badge badge-cancelled">Cancelled</span>}
         {isSeriesMember && <span className="badge badge-series">Series</span>}

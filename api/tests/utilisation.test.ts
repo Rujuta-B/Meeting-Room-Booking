@@ -6,9 +6,17 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createTestApp } from './helpers/testApp.js';
-import { createTestUser, createTestRoom, resetDatabase } from './helpers/factories.js';
+import { createTestUser, createTestRoom, resetDatabase, daysFromNow } from './helpers/factories.js';
 
 const app = createTestApp();
+
+// A wide window ([-1 day, +1 year)) around "now" that safely contains
+// every relative booking time this file creates (via daysFromNow),
+// regardless of when the suite actually runs - see daysFromNow's own
+// comment in helpers/factories.ts for why fixed calendar dates can't be
+// used here.
+const REPORT_RANGE_START = daysFromNow(-1, '00:00');
+const REPORT_RANGE_END = daysFromNow(365, '00:00');
 
 beforeEach(async () => {
   await resetDatabase();
@@ -21,7 +29,7 @@ describe('utilisation report', () => {
     const res = await request(app)
       .get('/utilisation')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .query({ rangeStart: '2026-01-01T00:00:00.000Z', rangeEnd: '2026-12-31T00:00:00.000Z' });
+      .query({ rangeStart: REPORT_RANGE_START, rangeEnd: REPORT_RANGE_END });
 
     expect(res.status).toBe(403);
   });
@@ -29,7 +37,7 @@ describe('utilisation report', () => {
   it('returns 401 with no auth at all', async () => {
     const res = await request(app)
       .get('/utilisation')
-      .query({ rangeStart: '2026-01-01T00:00:00.000Z', rangeEnd: '2026-12-31T00:00:00.000Z' });
+      .query({ rangeStart: REPORT_RANGE_START, rangeEnd: REPORT_RANGE_END });
 
     expect(res.status).toBe(401);
   });
@@ -42,12 +50,12 @@ describe('utilisation report', () => {
     await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: room.id, startTime: '2026-08-04T10:00:00.000Z', endTime: '2026-08-04T12:00:00.000Z' }); // 2 hours
+      .send({ roomId: room.id, startTime: daysFromNow(10, '10:00'), endTime: daysFromNow(10, '12:00') }); // 2 hours
 
     const res = await request(app)
       .get('/utilisation')
       .set('Authorization', `Bearer ${admin.accessToken}`)
-      .query({ rangeStart: '2026-08-01T00:00:00.000Z', rangeEnd: '2026-08-31T00:00:00.000Z' });
+      .query({ rangeStart: REPORT_RANGE_START, rangeEnd: REPORT_RANGE_END });
 
     expect(res.status).toBe(200);
     const row = res.body.report.find((r: { roomId: string }) => r.roomId === room.id);
@@ -63,13 +71,13 @@ describe('utilisation report', () => {
     const created = await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: room.id, startTime: '2026-08-04T10:00:00.000Z', endTime: '2026-08-04T12:00:00.000Z' });
+      .send({ roomId: room.id, startTime: daysFromNow(10, '10:00'), endTime: daysFromNow(10, '12:00') });
     await request(app).delete(`/bookings/${created.body.booking.id}`).set('Authorization', `Bearer ${user.accessToken}`);
 
     const res = await request(app)
       .get('/utilisation')
       .set('Authorization', `Bearer ${admin.accessToken}`)
-      .query({ rangeStart: '2026-08-01T00:00:00.000Z', rangeEnd: '2026-08-31T00:00:00.000Z' });
+      .query({ rangeStart: REPORT_RANGE_START, rangeEnd: REPORT_RANGE_END });
 
     const row = res.body.report.find((r: { roomId: string }) => r.roomId === room.id);
     expect(row).toBeUndefined();
@@ -87,24 +95,25 @@ describe('utilisation report', () => {
     const user = await createTestUser();
     const room = await createTestRoom();
 
+    const bookingStart = daysFromNow(10, '10:00');
     await request(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ roomId: room.id, startTime: '2026-08-31T10:00:00.000Z', endTime: '2026-08-31T11:00:00.000Z' });
+      .send({ roomId: room.id, startTime: bookingStart, endTime: daysFromNow(10, '11:00') });
 
     // rangeEnd set to exactly the booking's startTime - EXCLUDED.
     const excluded = await request(app)
       .get('/utilisation')
       .set('Authorization', `Bearer ${admin.accessToken}`)
-      .query({ rangeStart: '2026-08-01T00:00:00.000Z', rangeEnd: '2026-08-31T10:00:00.000Z' });
+      .query({ rangeStart: REPORT_RANGE_START, rangeEnd: bookingStart });
     expect(excluded.body.report.find((r: { roomId: string }) => r.roomId === room.id)).toBeUndefined();
 
-    // rangeEnd pushed to the start of the NEXT day (the convention the
-    // frontend uses) - INCLUDED.
+    // rangeEnd pushed one hour later (the booking has already started by
+    // then) - INCLUDED.
     const included = await request(app)
       .get('/utilisation')
       .set('Authorization', `Bearer ${admin.accessToken}`)
-      .query({ rangeStart: '2026-08-01T00:00:00.000Z', rangeEnd: '2026-09-01T00:00:00.000Z' });
+      .query({ rangeStart: REPORT_RANGE_START, rangeEnd: daysFromNow(10, '11:00') });
     expect(included.body.report.find((r: { roomId: string }) => r.roomId === room.id)).toBeDefined();
   });
 });

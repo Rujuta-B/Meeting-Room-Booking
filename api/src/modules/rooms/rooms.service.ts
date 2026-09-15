@@ -80,6 +80,10 @@ interface AvailableRoomRow {
   capacity: number;
 }
 
+export interface AvailableRoomResult extends AvailableRoomRow {
+  attributes: string[];
+}
+
 // WHY this is raw SQL, not Prisma's query builder - see the plan (§4) for
 // the full reasoning. Short version: "rooms with NO overlapping CONFIRMED
 // booking in this exact window" is a correlated NOT EXISTS with a Postgres
@@ -87,7 +91,7 @@ interface AvailableRoomRow {
 // Building this through the builder would mean fetching bookings and
 // filtering in JS - exactly the "client-side filter over all rooms"
 // anti-pattern the spec explicitly forbids.
-export async function searchAvailableRooms(input: SearchAvailabilityInput): Promise<AvailableRoomRow[]> {
+export async function searchAvailableRooms(input: SearchAvailabilityInput): Promise<AvailableRoomResult[]> {
   const attributeNames = input.attributes;
 
   // Resolve attribute NAMES to ids first (small lookup table, negligible
@@ -106,7 +110,16 @@ export async function searchAvailableRooms(input: SearchAvailabilityInput): Prom
     return [];
   }
 
-  return prisma.$queryRaw<AvailableRoomRow[]>`
+  // The overlap check below uses tsrange (NOT tstzrange) against a plain
+  // ::timestamp cast, deliberately mirroring the EXCLUDE constraint's own
+  // expression (see the exclusion-constraint migration's comment on
+  // SQLSTATE 42P17): start_time/end_time are plain timestamp columns with
+  // no time zone, so casting to tstzrange would apply a
+  // session-timezone-dependent conversion that the constraint itself
+  // deliberately avoids. If this ever drifted from the constraint's own
+  // bound semantics, the search results and the DB-enforced guarantee
+  // could silently disagree on what "overlap" means.
+  const rooms = await prisma.$queryRaw<AvailableRoomRow[]>`
     SELECT r.id, r.name, r.location, r.capacity
     FROM rooms r
     WHERE r.capacity >= ${input.minCapacity}
@@ -119,7 +132,7 @@ export async function searchAvailableRooms(input: SearchAvailabilityInput): Prom
           -- exact bound used by the EXCLUDE constraint itself, so this
           -- search query and the DB-enforced guarantee agree on what
           -- "overlap" means.
-          AND tstzrange(b.start_time, b.end_time, '[)') && tstzrange(${input.startTime}::timestamptz, ${input.endTime}::timestamptz, '[)')
+          AND tsrange(b.start_time, b.end_time, '[)') && tsrange(${input.startTime}::timestamp, ${input.endTime}::timestamp, '[)')
       )
       AND (
         ${attributeIds.length} = 0
@@ -132,4 +145,22 @@ export async function searchAvailableRooms(input: SearchAvailabilityInput): Prom
       )
     ORDER BY r.name;
   `;
+
+  if (rooms.length === 0) return [];
+
+  // A second, tiny query keyed by the room ids the first query already
+  // narrowed down to - not a per-room query in a loop, and not fetching
+  // every room's attributes up front only to discard most of them.
+  const roomAttributeRows = await prisma.roomAttribute.findMany({
+    where: { roomId: { in: rooms.map((r) => r.id) } },
+    include: { attribute: { select: { name: true } } },
+  });
+  const attributesByRoomId = new Map<string, string[]>();
+  for (const row of roomAttributeRows) {
+    const list = attributesByRoomId.get(row.roomId) ?? [];
+    list.push(row.attribute.name);
+    attributesByRoomId.set(row.roomId, list);
+  }
+
+  return rooms.map((room) => ({ ...room, attributes: attributesByRoomId.get(room.id) ?? [] }));
 }

@@ -13,6 +13,15 @@ export function RoomResultCard({ room, startTime, endTime }) {
       <h3>{room.name}</h3>
       <p>{room.location}</p>
       <p>Capacity: {room.capacity}</p>
+      {room.attributes?.length > 0 && (
+        <div className="attribute-tags">
+          {room.attributes.map((attribute) => (
+            <span key={attribute} className="attribute-tag">
+              {attribute}
+            </span>
+          ))}
+        </div>
+      )}
       <Link to={`/book?${params.toString()}`}>Book this room</Link>
     </div>
   );

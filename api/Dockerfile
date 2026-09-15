@@ -26,7 +26,20 @@ ENV NODE_ENV=production
 RUN apk add --no-cache openssl
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+# prisma/seed.ts is run directly (via tsx, see CMD below), not compiled by
+# `npm run build` (that only covers rootDir "src" - see tsconfig.json) - so
+# tsx has to be present in the runtime image too, even though it's
+# otherwise a devDependency. A small, deliberate exception for a POC:
+# restructuring the build to compile prisma/seed.ts alongside src/ isn't
+# worth it just to avoid one extra dev package in the image.
+#
+# WHY `--include=dev` specifically, not a plain `npm install tsx` after
+# `npm ci --omit=dev`: tsx is already listed in package.json's own
+# devDependencies, so a plain `npm install tsx` sees it as "already
+# satisfied" according to the manifest/lockfile and silently no-ops
+# without actually installing the files `--omit=dev` just removed -
+# `--include=dev` is what forces npm to actually materialize it on disk.
+RUN npm ci --omit=dev && npm install --no-save --include=dev tsx
 
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
@@ -35,7 +48,12 @@ COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 EXPOSE 3000
 
 # Deliberate POC simplification, documented here and in docker-compose.yml:
-# migrations run every time the container starts, not as a separate
-# release step. Fine for a single instance; see docker-compose.yml's
-# comment on what would need to change to safely run multiple instances.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+# migrations (and now seeding) run every time the container starts, not as
+# a separate release step. Fine for a single instance; see
+# docker-compose.yml's comment on what would need to change to safely run
+# multiple instances. Seeding after migrating, before starting the server,
+# is what lets `docker compose up` alone produce a fully demoable app (real
+# rooms + a ready admin/user login) with no extra manual command - the
+# seed script itself is idempotent (upserts users/attributes, only creates
+# rooms if none exist yet), so re-running it on every restart is safe.
+CMD ["sh", "-c", "npx prisma migrate deploy && npm run prisma:seed && node dist/server.js"]

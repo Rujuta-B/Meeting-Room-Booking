@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createTestApp } from './helpers/testApp.js';
-import { createTestUser, createTestRoom, resetDatabase } from './helpers/factories.js';
+import { createTestUser, createTestRoom, resetDatabase, daysFromNow } from './helpers/factories.js';
 
 const app = createTestApp();
 
@@ -24,8 +24,8 @@ describe('recurring booking series', () => {
       .set('Authorization', `Bearer ${user.accessToken}`)
       .send({
         roomId: room.id,
-        startTime: '2026-06-02T10:00:00.000Z', // a Tuesday
-        endTime: '2026-06-02T11:00:00.000Z',
+        startTime: daysFromNow(30, '10:00'),
+        endTime: daysFromNow(30, '11:00'),
         occurrenceCount: 4,
       });
 
@@ -47,8 +47,8 @@ describe('recurring booking series', () => {
       .set('Authorization', `Bearer ${user.accessToken}`)
       .send({
         roomId: room.id,
-        startTime: '2026-06-02T10:00:00.000Z',
-        endTime: '2026-06-02T11:00:00.000Z',
+        startTime: daysFromNow(30, '10:00'),
+        endTime: daysFromNow(30, '11:00'),
         occurrenceCount: 3,
       });
 
@@ -84,8 +84,8 @@ describe('recurring booking series', () => {
       .set('Authorization', `Bearer ${owner.accessToken}`)
       .send({
         roomId: room.id,
-        startTime: '2026-06-02T10:00:00.000Z',
-        endTime: '2026-06-02T11:00:00.000Z',
+        startTime: daysFromNow(30, '10:00'),
+        endTime: daysFromNow(30, '11:00'),
         occurrenceCount: 2,
       });
     const firstOccurrence = created.body.occurrences[0];

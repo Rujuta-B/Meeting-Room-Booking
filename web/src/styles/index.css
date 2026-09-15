@@ -1,17 +1,129 @@
 /* src/styles/index.css
-   Deliberately plain/functional, not a design system - the POC is graded
-   on backend engineering depth (per the plan), so styling effort here is
-   just enough to make every flow easy to demo, not visually polished. */
+   A clean, professional light/dark theme built on CSS custom properties.
+   Every existing class name from the original plain stylesheet is kept
+   (so no JSX had to change to pick up the new look) - this file only
+   changes HOW things look, not the component structure. */
 
 :root {
-  --ink: #1a1a1a;
+  color-scheme: light;
+
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --border: #e2e5ea;
+  --border-strong: #cbd2db;
+
+  --ink: #16181d;
   --muted: #6b7280;
-  --border: #d1d5db;
-  --accent: #2563eb;
+  --muted-2: #9aa1ab;
+
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-ink: #ffffff;
+  --accent-tint: #eef0fe;
+
   --danger: #b91c1c;
   --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+
+  --warning: #92400e;
+  --warning-bg: #fffbeb;
+  --warning-border: #fde68a;
+
+  --success: #166534;
   --success-bg: #f0fdf4;
-  font-family: system-ui, -apple-system, sans-serif;
+  --success-border: #bbf7d0;
+
+  --series-bg: #ede9fe;
+  --series-ink: #6d28d9;
+
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Dark palette: applied automatically when the OS/browser prefers dark
+   AND the user hasn't made an explicit choice, and always when the
+   toggle in NavBar sets data-theme="dark" on <html>. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --bg: #0f1115;
+    --surface: #171a21;
+    --surface-raised: #1d2029;
+    --border: #2a2e38;
+    --border-strong: #3a3f4c;
+
+    --ink: #eceef2;
+    --muted: #9aa1ab;
+    --muted-2: #6b7280;
+
+    --accent: #818cf8;
+    --accent-hover: #a5b4fc;
+    --accent-ink: #0f1115;
+    --accent-tint: #23253a;
+
+    --danger: #f87171;
+    --danger-bg: #2a1618;
+    --danger-border: #5c2427;
+
+    --warning: #fbbf24;
+    --warning-bg: #2a2110;
+    --warning-border: #5c4a1a;
+
+    --success: #4ade80;
+    --success-bg: #12261a;
+    --success-border: #1f4a2e;
+
+    --series-bg: #2a2440;
+    --series-ink: #c4b5fd;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0f1115;
+  --surface: #171a21;
+  --surface-raised: #1d2029;
+  --border: #2a2e38;
+  --border-strong: #3a3f4c;
+
+  --ink: #eceef2;
+  --muted: #9aa1ab;
+  --muted-2: #6b7280;
+
+  --accent: #818cf8;
+  --accent-hover: #a5b4fc;
+  --accent-ink: #0f1115;
+  --accent-tint: #23253a;
+
+  --danger: #f87171;
+  --danger-bg: #2a1618;
+  --danger-border: #5c2427;
+
+  --warning: #fbbf24;
+  --warning-bg: #2a2110;
+  --warning-border: #5c4a1a;
+
+  --success: #4ade80;
+  --success-bg: #12261a;
+  --success-border: #1f4a2e;
+
+  --series-bg: #2a2440;
+  --series-ink: #c4b5fd;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
 * {
@@ -21,7 +133,32 @@
 body {
   margin: 0;
   color: var(--ink);
-  background: #fafafa;
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0 0 20px;
+}
+
+h2 {
+  font-size: 1.05rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 28px 0 12px;
+}
+
+a {
+  color: var(--accent);
 }
 
 .app-shell {
@@ -32,44 +169,80 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 24px;
-  background: white;
+  padding: 14px 24px;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .navbar-brand a {
   font-weight: 700;
+  font-size: 1.05rem;
   text-decoration: none;
   color: var(--ink);
+  letter-spacing: -0.01em;
 }
 
 .navbar-links {
   display: flex;
-  gap: 16px;
+  gap: 20px;
   align-items: center;
   flex-wrap: wrap;
 }
 
 .navbar-links a {
-  color: var(--ink);
+  color: var(--muted);
   text-decoration: none;
+  font-size: 0.92rem;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.navbar-links a:hover {
+  color: var(--ink);
 }
 
 .navbar-user {
+  color: var(--muted-2);
+  font-size: 0.85em;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
   color: var(--muted);
-  font-size: 0.9em;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  background: var(--accent-tint);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .app-content {
-  max-width: 900px;
+  max-width: 960px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 32px 24px 64px;
 }
 
 form label {
   display: block;
-  margin-bottom: 12px;
-  font-size: 0.9em;
+  margin-bottom: 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--muted);
 }
 
 form input,
@@ -77,40 +250,90 @@ form select {
   display: block;
   width: 100%;
   max-width: 320px;
-  padding: 8px;
-  margin-top: 4px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  padding: 9px 12px;
+  margin-top: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+form input:focus,
+form select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
 }
 
 button {
-  padding: 8px 16px;
+  padding: 9px 18px;
   border: 1px solid var(--accent);
   background: var(--accent);
-  color: white;
-  border-radius: 4px;
+  color: var(--accent-ink);
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-family: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 button:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
+/* A secondary/plain button treatment: used for "cancel edit" and similar
+   dismissive actions that shouldn't compete visually with the primary
+   accent button next to them. */
+.booking-item-actions button:nth-of-type(n),
+.shorten-form button[type='button']:last-of-type {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--border-strong);
+}
+
+.booking-item-actions button:hover:not(:disabled),
+.shorten-form button[type='button']:last-of-type:hover:not(:disabled) {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .banner {
-  padding: 12px 16px;
-  border-radius: 4px;
+  padding: 13px 16px;
+  border-radius: var(--radius-md);
   margin-bottom: 16px;
+  font-size: 0.92rem;
+  border: 1px solid transparent;
 }
 
 .banner-conflict {
-  background: #fffbeb;
-  border: 1px solid #f59e0b;
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning);
 }
 
 .banner-error {
   background: var(--danger-bg);
-  border: 1px solid var(--danger);
+  border-color: var(--danger-border);
   color: var(--danger);
 }
 
@@ -122,15 +345,106 @@ button:disabled {
 
 .room-results,
 .room-search-page .room-filter-bar {
-  margin-top: 16px;
+  margin-top: 20px;
+}
+
+.room-filter-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: end;
+}
+
+.room-filter-bar label {
+  margin-bottom: 0;
+  flex: 1 1 140px;
+}
+
+.room-filter-bar button {
+  align-self: flex-end;
 }
 
 .room-card {
   border: 1px solid var(--border);
-  background: white;
-  border-radius: 6px;
-  padding: 16px;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
   margin-bottom: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.room-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.room-card h3 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.room-card p {
+  margin: 2px 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.room-card a {
+  display: inline-block;
+  margin-top: 10px;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.attribute-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+
+.attribute-tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.refreshed-results ul {
+  list-style: none;
+  padding: 0;
+}
+
+.refreshed-results li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.room-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  max-width: 400px;
 }
 
 .booking-list {
@@ -140,37 +454,57 @@ button:disabled {
 
 .booking-item {
   border: 1px solid var(--border);
-  background: white;
-  border-radius: 6px;
-  padding: 12px 16px;
-  margin-bottom: 8px;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  margin-bottom: 10px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
+  box-shadow: var(--shadow-sm);
 }
 
 .booking-item-cancelled {
-  opacity: 0.6;
+  opacity: 0.55;
+}
+
+.booking-item-details {
+  font-size: 0.95rem;
+}
+
+.booking-item-room {
+  display: block;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+
+.booking-item-note {
+  color: var(--muted-2);
+  font-size: 0.85rem;
+  font-style: italic;
 }
 
 .badge {
   display: inline-block;
-  font-size: 0.75em;
-  padding: 2px 8px;
+  font-size: 0.72em;
+  font-weight: 600;
+  padding: 2px 9px;
   border-radius: 999px;
   margin-left: 8px;
+  vertical-align: middle;
 }
 
 .badge-cancelled {
-  background: #f3f4f6;
+  background: var(--border);
   color: var(--muted);
 }
 
 .badge-series {
-  background: #ede9fe;
-  color: #6d28d9;
+  background: var(--series-bg);
+  color: var(--series-ink);
 }
 
 .booking-item-actions {
@@ -181,21 +515,45 @@ button:disabled {
 
 .shorten-form {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.shorten-form input {
+  margin-top: 0;
+  width: auto;
 }
 
 table.utilisation-table {
   width: 100%;
   border-collapse: collapse;
-  background: white;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
 .utilisation-table th,
 .utilisation-table td {
-  border: 1px solid var(--border);
-  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 14px;
   text-align: left;
+  font-size: 0.9rem;
+}
+
+.utilisation-table th {
+  background: var(--bg);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.utilisation-table tr:last-child td {
+  border-bottom: none;
 }
 
 .admin-room-list {
@@ -204,8 +562,17 @@ table.utilisation-table {
 }
 
 .admin-room-list li {
-  padding: 8px 0;
+  padding: 12px 4px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-room-list li:last-child {
+  border-bottom: none;
 }
 
 .page-loading {
@@ -215,7 +582,7 @@ table.utilisation-table {
 }
 
 .auth-page {
-  min-height: calc(100vh - 57px); /* viewport minus navbar height */
+  min-height: calc(100vh - 63px); /* viewport minus navbar height */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -225,18 +592,18 @@ table.utilisation-table {
 
 .auth-page h1 {
   margin: 0 0 20px;
-  font-size: 1.5em;
+  font-size: 1.4em;
   text-align: center;
 }
 
 .auth-page form {
   width: 100%;
   max-width: 360px;
-  background: white;
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  box-shadow: var(--shadow-md);
 }
 
 .auth-page form label {
@@ -249,7 +616,7 @@ table.utilisation-table {
 
 .auth-page form button {
   width: 100%;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .auth-page .banner {
@@ -258,7 +625,24 @@ table.utilisation-table {
 }
 
 .auth-page > p {
-  margin-top: 16px;
+  margin-top: 18px;
   color: var(--muted);
-  font-size: 0.9em;
+  font-size: 0.9rem;
+}
+
+/* Small screens: give cards/lists a touch less padding and let the
+   filter bar/booking items stack cleanly instead of overflowing. */
+@media (max-width: 480px) {
+  .app-content {
+    padding: 20px 16px 48px;
+  }
+
+  .room-filter-bar {
+    padding: 16px;
+  }
+
+  .booking-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
