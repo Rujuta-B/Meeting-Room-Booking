@@ -79,6 +79,13 @@ model Room {
   bookings   Booking[]
 
   @@index([capacity])
+  // No @@index([name]) here on purpose: a plain B-tree index doesn't
+  // accelerate ILIKE '%substring%' search at all (it can only use a
+  // prefix match). The actual index backing name/location search is a
+  // hand-written GIN trigram index - see
+  // prisma/migrations/20260101000002_add_room_name_search_index/migration.sql
+  // - which Prisma's schema DSL has no way to express (same reason the
+  // booking EXCLUDE constraint above is hand-written too).
   @@map("rooms")
 }
 

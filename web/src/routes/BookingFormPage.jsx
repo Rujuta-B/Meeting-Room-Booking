@@ -44,7 +44,7 @@ export function BookingFormPage() {
         // failed. This re-uses the same search the room list came from,
         // for the exact window they wanted.
         try {
-          const rooms = await searchAvailableRooms({ startTime, endTime, minCapacity: 1 });
+          const { rooms } = await searchAvailableRooms({ startTime, endTime, minCapacity: 1 });
           setRefreshedRooms(rooms);
         } catch {
           // If even the re-check fails, that's fine - the conflict banner

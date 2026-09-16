@@ -21,7 +21,13 @@ export function RecurringBookingFormPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    listRooms().then(setRooms).catch(() => setError('Could not load the room list.'));
+    // This is a <select> room picker, not a paginated table - it needs the
+    // full room list in one shot, so it asks for the max page size rather
+    // than paging through it. (The API's default pageSize is small,
+    // sized for a browsable list, not this dropdown's usage.)
+    listRooms({ pageSize: 100 })
+      .then(({ rooms: allRooms }) => setRooms(allRooms))
+      .catch(() => setError('Could not load the room list.'));
   }, []);
 
   async function handleSubmit(e) {

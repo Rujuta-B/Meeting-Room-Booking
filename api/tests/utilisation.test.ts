@@ -116,4 +116,47 @@ describe('utilisation report', () => {
       .query({ rangeStart: REPORT_RANGE_START, rangeEnd: daysFromNow(10, '11:00') });
     expect(included.body.report.find((r: { roomId: string }) => r.roomId === room.id)).toBeDefined();
   });
+
+  it('filters the report down to a single room via roomId', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const roomA = await createTestRoom();
+    const roomB = await createTestRoom();
+
+    for (const room of [roomA, roomB]) {
+      await request(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${user.accessToken}`)
+        .send({ roomId: room.id, startTime: daysFromNow(10, '10:00'), endTime: daysFromNow(10, '11:00') });
+    }
+
+    const res = await request(app)
+      .get('/utilisation')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ rangeStart: REPORT_RANGE_START, rangeEnd: REPORT_RANGE_END, roomId: roomA.id });
+
+    const roomIds = new Set(res.body.report.map((r: { roomId: string }) => r.roomId));
+    expect(roomIds).toEqual(new Set([roomA.id]));
+  });
+
+  it('paginates the report and reports the total row count independent of the page requested', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    // 3 rooms, each with one CONFIRMED booking in-range -> 3 report rows.
+    const rooms = await Promise.all(Array.from({ length: 3 }, () => createTestRoom()));
+    for (const room of rooms) {
+      await request(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${user.accessToken}`)
+        .send({ roomId: room.id, startTime: daysFromNow(10, '10:00'), endTime: daysFromNow(10, '11:00') });
+    }
+
+    const res = await request(app)
+      .get('/utilisation')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ rangeStart: REPORT_RANGE_START, rangeEnd: REPORT_RANGE_END, page: 1, pageSize: 2 });
+
+    expect(res.body.report).toHaveLength(2);
+    expect(res.body.pagination).toEqual({ page: 1, pageSize: 2, total: 3, totalPages: 2 });
+  });
 });

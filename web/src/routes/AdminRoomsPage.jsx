@@ -3,24 +3,38 @@ import { useEffect, useState, useCallback } from 'react';
 import { listRooms, createRoom, updateRoom } from '../api/rooms.js';
 import { RoomForm } from '../components/admin/RoomForm.jsx';
 import { ErrorBanner } from '../components/ErrorBanner.jsx';
+import { Pagination } from '../components/Pagination.jsx';
 
 export function AdminRoomsPage() {
   const [rooms, setRooms] = useState(null);
+  const [pagination, setPagination] = useState(null);
+  const [nameFilter, setNameFilter] = useState('');
+  const [page, setPage] = useState(1);
   const [editingRoomId, setEditingRoomId] = useState(null);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
   const reload = useCallback(async () => {
     try {
-      setRooms(await listRooms());
+      const result = await listRooms({ name: nameFilter.trim() || undefined, page });
+      setRooms(result.rooms);
+      setPagination(result.pagination);
     } catch {
       setError('Could not load rooms.');
     }
-  }, []);
+  }, [nameFilter, page]);
 
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // Any change to the search term restarts from page 1 - staying on, say,
+  // page 3 of an old, wider result set after narrowing the search would
+  // silently show an empty or wrong page.
+  function handleNameFilterChange(value) {
+    setNameFilter(value);
+    setPage(1);
+  }
 
   async function handleCreate(input) {
     setError(null);
@@ -75,17 +89,31 @@ export function AdminRoomsPage() {
 
       <section>
         <h2>Existing rooms</h2>
-        <ul className="admin-room-list">
-          {rooms.map((room) => (
-            <li key={room.id}>
-              <strong>{room.name}</strong> — {room.location}, capacity {room.capacity}
-              {room.attributes.length > 0 && <> ({room.attributes.map((a) => a.attribute.name).join(', ')})</>}
-              <button type="button" onClick={() => setEditingRoomId(room.id)}>
-                Edit
-              </button>
-            </li>
-          ))}
-        </ul>
+        <label className="admin-room-search">
+          Search by name or location
+          <input
+            type="text"
+            placeholder="e.g. Aspen, 3rd floor"
+            value={nameFilter}
+            onChange={(e) => handleNameFilterChange(e.target.value)}
+          />
+        </label>
+        {rooms.length === 0 ? (
+          <p>No rooms match that search.</p>
+        ) : (
+          <ul className="admin-room-list">
+            {rooms.map((room) => (
+              <li key={room.id}>
+                <strong>{room.name}</strong> — {room.location}, capacity {room.capacity}
+                {room.attributes.length > 0 && <> ({room.attributes.map((a) => a.attribute.name).join(', ')})</>}
+                <button type="button" onClick={() => setEditingRoomId(room.id)}>
+                  Edit
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Pagination pagination={pagination} onPageChange={setPage} />
       </section>
     </div>
   );
