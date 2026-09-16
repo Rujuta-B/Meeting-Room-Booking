@@ -1,11 +1,21 @@
 // src/modules/rooms/rooms.controller.ts
 import type { Request, Response } from 'express';
 import * as roomsService from './rooms.service.js';
-import type { CreateRoomInput, UpdateRoomInput, SearchAvailabilityInput } from './rooms.schemas.js';
+import { buildPaginationMeta } from './rooms.schemas.js';
+import type { CreateRoomInput, UpdateRoomInput, SearchAvailabilityInput, ListRoomsQueryInput } from './rooms.schemas.js';
 
-export async function listRoomsHandler(_req: Request, res: Response): Promise<void> {
-  const rooms = await roomsService.listRooms();
-  res.json({ rooms });
+// WHY req.query is read as `unknown` and cast here too: same reasoning as
+// searchAvailabilityHandler below - validate() already replaced req.query
+// with the parsed, coerced ListRoomsQueryInput before this handler runs.
+export async function listRoomsHandler(req: Request, res: Response): Promise<void> {
+  const query = req.query as unknown as ListRoomsQueryInput;
+  const { rooms, total } = await roomsService.listRooms(query);
+  res.json({ rooms, pagination: buildPaginationMeta(query, total) });
+}
+
+export async function listAttributesHandler(_req: Request, res: Response): Promise<void> {
+  const attributes = await roomsService.listAttributes();
+  res.json({ attributes });
 }
 
 export async function createRoomHandler(req: Request<unknown, unknown, CreateRoomInput>, res: Response): Promise<void> {
@@ -31,6 +41,7 @@ export async function updateRoomHandler(req: Request<{ id: string }, unknown, Up
 // in rooms.routes.ts and overwrote req.query with the parsed, coerced
 // result - see middleware/validate.ts.
 export async function searchAvailabilityHandler(req: Request, res: Response): Promise<void> {
-  const rooms = await roomsService.searchAvailableRooms(req.query as unknown as SearchAvailabilityInput);
-  res.json({ rooms });
+  const query = req.query as unknown as SearchAvailabilityInput;
+  const { rooms, total } = await roomsService.searchAvailableRooms(query);
+  res.json({ rooms, pagination: buildPaginationMeta(query, total) });
 }

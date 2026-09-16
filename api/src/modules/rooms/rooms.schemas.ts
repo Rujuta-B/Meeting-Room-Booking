@@ -1,6 +1,33 @@
 // src/modules/rooms/rooms.schemas.ts
 import { z } from 'zod';
 
+// Shared by every paginated list endpoint (rooms list, rooms search,
+// utilisation report). pageSize is capped at 100 - without a cap, a
+// client could request pageSize=1000000 and defeat the entire point of
+// paginating, forcing the DB (and the response body) back to "return
+// everything."
+export const PaginationSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(20),
+});
+export type PaginationInput = z.infer<typeof PaginationSchema>;
+
+export interface PaginationMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export function buildPaginationMeta(input: PaginationInput, total: number): PaginationMeta {
+  return {
+    page: input.page,
+    pageSize: input.pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / input.pageSize)),
+  };
+}
+
 export const CreateRoomSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
   location: z.string().min(1, 'Location is required.'),
@@ -27,6 +54,10 @@ export const SearchAvailabilitySchema = z
     startTime: z.coerce.date({ errorMap: () => ({ message: 'startTime must be a valid ISO date-time.' }) }),
     endTime: z.coerce.date({ errorMap: () => ({ message: 'endTime must be a valid ISO date-time.' }) }),
     minCapacity: z.coerce.number().int().positive().default(1),
+    // Free-text substring match against name OR location, e.g. "3rd floor"
+    // or "Aspen" - resolved as a case-insensitive ILIKE in the service, not
+    // fetched-then-filtered in JS.
+    name: z.string().trim().min(1).optional(),
     // Comma-separated attribute names in the query string, e.g.
     // ?attributes=projector,whiteboard - transformed into a clean array.
     attributes: z
@@ -34,6 +65,7 @@ export const SearchAvailabilitySchema = z
       .optional()
       .transform((value) => (value ? value.split(',').map((s) => s.trim()).filter(Boolean) : [])),
   })
+  .merge(PaginationSchema)
   .refine((data) => data.endTime > data.startTime, {
     message: 'endTime must be after startTime.',
     path: ['endTime'],
@@ -43,3 +75,10 @@ export const SearchAvailabilitySchema = z
     path: ['startTime'],
   });
 export type SearchAvailabilityInput = z.infer<typeof SearchAvailabilitySchema>;
+
+// GET /rooms (the admin/plain room catalogue listing) - previously took no
+// params at all and always returned every room.
+export const ListRoomsQuerySchema = z.object({
+  name: z.string().trim().min(1).optional(),
+}).merge(PaginationSchema);
+export type ListRoomsQueryInput = z.infer<typeof ListRoomsQuerySchema>;

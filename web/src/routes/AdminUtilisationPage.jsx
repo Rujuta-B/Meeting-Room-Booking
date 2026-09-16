@@ -39,7 +39,7 @@ export function AdminUtilisationPage() {
       endOfSelectedDay.setDate(endOfSelectedDay.getDate() + 1);
 
       const result = await getUtilisationReport(new Date(rangeStart).toISOString(), endOfSelectedDay.toISOString());
-      setReport(result);
+      setReport(result.report);
     } catch {
       setError('Could not load the utilisation report.');
     } finally {

@@ -12,6 +12,7 @@
 // module, and refresh-token revocation lives in the RefreshToken table.
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import ms from 'ms';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { UnauthorizedError } from './errors.js';
@@ -54,7 +55,17 @@ export type RefreshTokenPayload = z.infer<typeof RefreshTokenPayloadSchema>;
 // TypeScript what we already know to be true at runtime, rather than
 // papering over a real type mismatch.
 export function signAccessToken(payload: AccessTokenPayload): string {
-  return jwt.sign(payload, env.JWT_ACCESS_SECRET, {
+  // A random jti is embedded (but never looked up anywhere, unlike the
+  // refresh token's jti) purely to guarantee token uniqueness: a JWT's
+  // only other source of per-token variation is `iat`, which the JWT spec
+  // truncates to whole seconds. Two access tokens legitimately issued for
+  // the same user within the same second (e.g. register immediately
+  // followed by a refresh) would otherwise be byte-for-byte identical -
+  // "issue a new token" could silently produce one indistinguishable from
+  // the one it was meant to replace. verifyAccessToken below re-validates
+  // against AccessTokenPayloadSchema (no jti field), so this extra field
+  // is simply dropped on the way back out - callers never see it.
+  return jwt.sign({ ...payload, jti: randomUUID() }, env.JWT_ACCESS_SECRET, {
     expiresIn: env.JWT_ACCESS_EXPIRES_IN as SignOptions['expiresIn'],
   });
 }

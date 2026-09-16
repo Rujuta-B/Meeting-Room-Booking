@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { RoomFilterBar } from '../components/rooms/RoomFilterBar.jsx';
 import { RoomResultCard } from '../components/rooms/RoomResultCard.jsx';
 import { ErrorBanner } from '../components/ErrorBanner.jsx';
+import { Pagination } from '../components/Pagination.jsx';
 import { searchAvailableRooms } from '../api/rooms.js';
 import { toIsoDateTime } from '../lib/dateRange.js';
 import { ApiError } from '../lib/ApiError.js';
@@ -15,31 +16,32 @@ export function RoomSearchPage() {
     startTime: '10:00',
     endTime: '11:00',
     minCapacity: '1',
-    attributes: '',
+    name: '',
+    attributes: [],
   });
   const [results, setResults] = useState(null);
+  const [pagination, setPagination] = useState(null);
   const [searchedRange, setSearchedRange] = useState(null);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleSearch() {
+  async function runSearch(page = 1) {
     setError(null);
     setSubmitting(true);
     try {
       const startTime = toIsoDateTime(filters.date, filters.startTime);
       const endTime = toIsoDateTime(filters.date, filters.endTime);
-      const attributes = filters.attributes
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
 
-      const rooms = await searchAvailableRooms({
+      const { rooms, pagination: nextPagination } = await searchAvailableRooms({
         startTime,
         endTime,
         minCapacity: Number(filters.minCapacity) || 1,
-        attributes,
+        attributes: filters.attributes,
+        name: filters.name.trim() || undefined,
+        page,
       });
       setResults(rooms);
+      setPagination(nextPagination);
       setSearchedRange({ startTime, endTime });
     } catch (err) {
       if (
@@ -59,7 +61,7 @@ export function RoomSearchPage() {
   return (
     <div className="room-search-page">
       <h1>Find a room</h1>
-      <RoomFilterBar filters={filters} onChange={setFilters} onSubmit={handleSearch} submitting={submitting} />
+      <RoomFilterBar filters={filters} onChange={setFilters} onSubmit={() => runSearch(1)} submitting={submitting} />
       {error && <ErrorBanner message={error} />}
       {results && (
         <div className="room-results">
@@ -75,6 +77,7 @@ export function RoomSearchPage() {
               />
             ))
           )}
+          <Pagination pagination={pagination} onPageChange={runSearch} />
         </div>
       )}
     </div>

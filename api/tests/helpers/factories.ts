@@ -43,12 +43,27 @@ export async function createTestUser(overrides: { role?: 'USER' | 'ADMIN'; email
   return { id: user.id, email: user.email, role: user.role, accessToken };
 }
 
-export async function createTestRoom(overrides: { capacity?: number; name?: string } = {}) {
+export async function createTestRoom(overrides: { capacity?: number; name?: string; location?: string } = {}) {
   return prisma.room.create({
     data: {
       name: overrides.name ?? `Room ${randomUUID().slice(0, 8)}`,
-      location: 'Test Floor',
+      location: overrides.location ?? 'Test Floor',
       capacity: overrides.capacity ?? 10,
     },
   });
+}
+
+// Booking creation/search deliberately rejects any startTime that isn't in
+// the future (see CreateBookingSchema/SearchAvailabilitySchema) - so tests
+// can't use a fixed calendar date literal (it eventually becomes "the
+// past" and every test using it starts failing with an unrelated 400).
+// Instead, every test builds its times relative to "now" via this helper:
+// `daysFromNow(10, '10:00')` always means "10 days from whenever the
+// suite runs, at 10:00 UTC" - so the whole suite stays valid indefinitely.
+export function daysFromNow(days: number, hhmm: string): string {
+  const [hours, minutes] = hhmm.split(':').map(Number);
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  date.setUTCHours(hours, minutes, 0, 0);
+  return date.toISOString();
 }

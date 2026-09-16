@@ -1,13 +1,38 @@
 // src/modules/rooms/rooms.service.ts
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../prisma/client.js';
 import { NotFoundError } from '../../lib/errors.js';
-import type { CreateRoomInput, UpdateRoomInput, SearchAvailabilityInput } from './rooms.schemas.js';
+import type { CreateRoomInput, UpdateRoomInput, SearchAvailabilityInput, ListRoomsQueryInput } from './rooms.schemas.js';
 
-export async function listRooms() {
-  return prisma.room.findMany({
-    include: { attributes: { include: { attribute: true } } },
-    orderBy: { name: 'asc' },
-  });
+export interface ListRoomsResult {
+  rooms: Awaited<ReturnType<typeof prisma.room.findMany>>;
+  total: number;
+}
+
+export async function listRooms(input: ListRoomsQueryInput): Promise<ListRoomsResult> {
+  // name matches against room name OR location, case-insensitively - a
+  // real WHERE clause evaluated by Postgres, not "fetch every room and
+  // filter in JS" (the anti-pattern the spec forbids for room search).
+  const where: Prisma.RoomWhereInput | undefined = input.name
+    ? { OR: [{ name: { contains: input.name, mode: 'insensitive' } }, { location: { contains: input.name, mode: 'insensitive' } }] }
+    : undefined;
+
+  const [rooms, total] = await Promise.all([
+    prisma.room.findMany({
+      where,
+      include: { attributes: { include: { attribute: true } } },
+      orderBy: { name: 'asc' },
+      skip: (input.page - 1) * input.pageSize,
+      take: input.pageSize,
+    }),
+    prisma.room.count({ where }),
+  ]);
+
+  return { rooms, total };
+}
+
+export async function listAttributes() {
+  return prisma.attribute.findMany({ orderBy: { name: 'asc' } });
 }
 
 export async function createRoom(input: CreateRoomInput) {
@@ -78,6 +103,20 @@ interface AvailableRoomRow {
   name: string;
   location: string;
   capacity: number;
+  total_count: bigint;
+}
+
+export interface AvailableRoomResult {
+  id: string;
+  name: string;
+  location: string;
+  capacity: number;
+  attributes: string[];
+}
+
+export interface SearchAvailableRoomsResult {
+  rooms: AvailableRoomResult[];
+  total: number;
 }
 
 // WHY this is raw SQL, not Prisma's query builder - see the plan (§4) for
@@ -87,7 +126,7 @@ interface AvailableRoomRow {
 // Building this through the builder would mean fetching bookings and
 // filtering in JS - exactly the "client-side filter over all rooms"
 // anti-pattern the spec explicitly forbids.
-export async function searchAvailableRooms(input: SearchAvailabilityInput): Promise<AvailableRoomRow[]> {
+export async function searchAvailableRooms(input: SearchAvailabilityInput): Promise<SearchAvailableRoomsResult> {
   const attributeNames = input.attributes;
 
   // Resolve attribute NAMES to ids first (small lookup table, negligible
@@ -103,13 +142,31 @@ export async function searchAvailableRooms(input: SearchAvailabilityInput): Prom
   // would (correctly, but pointlessly) return everything because
   // attributeCount = 0.
   if (attributeNames.length > 0 && attributeIds.length < attributeNames.length) {
-    return [];
+    return { rooms: [], total: 0 };
   }
 
-  return prisma.$queryRaw<AvailableRoomRow[]>`
-    SELECT r.id, r.name, r.location, r.capacity
+  const namePattern = input.name ? `%${input.name}%` : null;
+  const offset = (input.page - 1) * input.pageSize;
+
+  // The overlap check below uses tsrange (NOT tstzrange) against a plain
+  // ::timestamp cast, deliberately mirroring the EXCLUDE constraint's own
+  // expression (see the exclusion-constraint migration's comment on
+  // SQLSTATE 42P17): start_time/end_time are plain timestamp columns with
+  // no time zone, so casting to tstzrange would apply a
+  // session-timezone-dependent conversion that the constraint itself
+  // deliberately avoids. If this ever drifted from the constraint's own
+  // bound semantics, the search results and the DB-enforced guarantee
+  // could silently disagree on what "overlap" means.
+  //
+  // total_count uses COUNT(*) OVER() - a window function that returns the
+  // FULL matching row count on every row of this same query, so pagination
+  // metadata comes from one query instead of a second round-trip COUNT(*)
+  // against the same WHERE/NOT EXISTS logic.
+  const rooms = await prisma.$queryRaw<AvailableRoomRow[]>`
+    SELECT r.id, r.name, r.location, r.capacity, COUNT(*) OVER() AS total_count
     FROM rooms r
     WHERE r.capacity >= ${input.minCapacity}
+      AND (${namePattern}::text IS NULL OR r.name ILIKE ${namePattern} OR r.location ILIKE ${namePattern})
       AND NOT EXISTS (
         SELECT 1 FROM bookings b
         WHERE b.room_id = r.id
@@ -119,7 +176,7 @@ export async function searchAvailableRooms(input: SearchAvailabilityInput): Prom
           -- exact bound used by the EXCLUDE constraint itself, so this
           -- search query and the DB-enforced guarantee agree on what
           -- "overlap" means.
-          AND tstzrange(b.start_time, b.end_time, '[)') && tstzrange(${input.startTime}::timestamptz, ${input.endTime}::timestamptz, '[)')
+          AND tsrange(b.start_time, b.end_time, '[)') && tsrange(${input.startTime}::timestamp, ${input.endTime}::timestamp, '[)')
       )
       AND (
         ${attributeIds.length} = 0
@@ -130,6 +187,37 @@ export async function searchAvailableRooms(input: SearchAvailabilityInput): Prom
           HAVING COUNT(DISTINCT ra.attribute_id) = ${attributeIds.length}
         )
       )
-    ORDER BY r.name;
+    ORDER BY r.name
+    LIMIT ${input.pageSize}
+    OFFSET ${offset};
   `;
+
+  if (rooms.length === 0) return { rooms: [], total: 0 };
+
+  const total = Number(rooms[0].total_count);
+
+  // A second, tiny query keyed by the room ids the first query already
+  // narrowed down to - not a per-room query in a loop, and not fetching
+  // every room's attributes up front only to discard most of them.
+  const roomAttributeRows = await prisma.roomAttribute.findMany({
+    where: { roomId: { in: rooms.map((r) => r.id) } },
+    include: { attribute: { select: { name: true } } },
+  });
+  const attributesByRoomId = new Map<string, string[]>();
+  for (const row of roomAttributeRows) {
+    const list = attributesByRoomId.get(row.roomId) ?? [];
+    list.push(row.attribute.name);
+    attributesByRoomId.set(row.roomId, list);
+  }
+
+  return {
+    rooms: rooms.map((room) => ({
+      id: room.id,
+      name: room.name,
+      location: room.location,
+      capacity: room.capacity,
+      attributes: attributesByRoomId.get(room.id) ?? [],
+    })),
+    total,
+  };
 }

@@ -16,6 +16,7 @@ interface UtilisationRow {
   room_name: string;
   week_start: Date;
   hours_booked: number;
+  total_count: bigint;
 }
 
 export interface UtilisationReportRow {
@@ -27,6 +28,11 @@ export interface UtilisationReportRow {
   utilisationPct: number;
 }
 
+export interface UtilisationReportResult {
+  report: UtilisationReportRow[];
+  total: number;
+}
+
 // WHY raw SQL: GROUP BY date_trunc('week', b.start_time) groups rows by a
 // COMPUTED expression, not a stored column - Prisma's groupBy() API can
 // only group by actual columns, not by a transformed value, so there's no
@@ -35,23 +41,51 @@ export interface UtilisationReportRow {
 // once, over indexed columns (start_time, status) - not "load every
 // booking and sum in JS," which is exactly what the spec forbids for this
 // view too.
-export async function getUtilisationReport(rangeStart: Date, rangeEnd: Date): Promise<UtilisationReportRow[]> {
+export interface UtilisationReportParams {
+  rangeStart: Date;
+  rangeEnd: Date;
+  roomId?: string;
+  page: number;
+  pageSize: number;
+}
+
+// WHY roomId is applied as an extra WHERE clause rather than a separate
+// code path: the room-week aggregation and pagination need to happen in
+// the SAME query as the filter (see the file-level comment on why this is
+// raw SQL) - filtering "in front of" the query in JS would mean fetching
+// every room's rows first and discarding most of them, exactly the
+// client-side-filter cost the spec forbids for this view.
+export async function getUtilisationReport(params: UtilisationReportParams): Promise<UtilisationReportResult> {
+  const { rangeStart, rangeEnd, roomId = null, page, pageSize } = params;
+  const offset = (page - 1) * pageSize;
+
+  // total_count uses COUNT(*) OVER(), same reasoning as the room search
+  // query: one query returns both the page of rows and the full matching
+  // row count needed for pagination metadata, instead of a second
+  // round-trip COUNT(*) re-running the same GROUP BY.
   const rows = await prisma.$queryRaw<UtilisationRow[]>`
     SELECT
       r.id AS room_id,
       r.name AS room_name,
       date_trunc('week', b.start_time) AS week_start,
-      SUM(EXTRACT(EPOCH FROM (b.end_time - b.start_time)) / 3600.0) AS hours_booked
+      SUM(EXTRACT(EPOCH FROM (b.end_time - b.start_time)) / 3600.0) AS hours_booked,
+      COUNT(*) OVER() AS total_count
     FROM bookings b
     JOIN rooms r ON r.id = b.room_id
     WHERE b.status = 'CONFIRMED'
       AND b.start_time >= ${rangeStart}::timestamptz
       AND b.start_time < ${rangeEnd}::timestamptz
+      AND (${roomId}::text IS NULL OR r.id = ${roomId}::text)
     GROUP BY r.id, r.name, date_trunc('week', b.start_time)
-    ORDER BY r.name, week_start;
+    ORDER BY r.name, week_start
+    LIMIT ${pageSize}
+    OFFSET ${offset};
   `;
 
-  return rows.map((row) => {
+  if (rows.length === 0) return { report: [], total: 0 };
+
+  const total = Number(rows[0].total_count);
+  const report = rows.map((row) => {
     const hoursBooked = Number(row.hours_booked);
     return {
       roomId: row.room_id,
@@ -62,4 +96,6 @@ export async function getUtilisationReport(rangeStart: Date, rangeEnd: Date): Pr
       utilisationPct: Math.round((hoursBooked / HOURS_AVAILABLE_PER_WEEK) * 1000) / 10,
     };
   });
+
+  return { report, total };
 }
