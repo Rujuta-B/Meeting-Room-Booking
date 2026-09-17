@@ -29,7 +29,7 @@ describe('room availability search', () => {
     const res = await request(app)
       .get('/rooms/search')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .query({ startTime: daysFromNow(20, '10:30'), endTime: daysFromNow(20, '10:45'), minCapacity: 1 });
+      .query({ startTime: daysFromNow(20, '10:30'), endTime: daysFromNow(20, '10:45'), minCapacity: 2 });
 
     expect(res.status).toBe(200);
     expect(res.body.rooms.find((r: { id: string }) => r.id === room.id)).toBeUndefined();
@@ -49,7 +49,7 @@ describe('room availability search', () => {
       .set('Authorization', `Bearer ${user.accessToken}`)
       // Requests the slot right after the existing booking ends - '[)' bound
       // means 11:00-12:00 does NOT overlap a booking ending at 11:00.
-      .query({ startTime: daysFromNow(20, '11:00'), endTime: daysFromNow(20, '12:00'), minCapacity: 1 });
+      .query({ startTime: daysFromNow(20, '11:00'), endTime: daysFromNow(20, '12:00'), minCapacity: 2 });
 
     expect(res.status).toBe(200);
     expect(res.body.rooms.find((r: { id: string }) => r.id === room.id)).toBeDefined();
@@ -69,7 +69,7 @@ describe('room availability search', () => {
     const res = await request(app)
       .get('/rooms/search')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .query({ startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00'), minCapacity: 1 });
+      .query({ startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00'), minCapacity: 2 });
 
     expect(res.body.rooms.find((r: { id: string }) => r.id === room.id)).toBeDefined();
   });
@@ -111,7 +111,7 @@ describe('room availability search', () => {
       .query({
         startTime: daysFromNow(20, '10:00'),
         endTime: daysFromNow(20, '11:00'),
-        minCapacity: 1,
+        minCapacity: 2,
         attributes: `${projector.name},${whiteboard.name}`,
       });
 
@@ -129,7 +129,7 @@ describe('room availability search', () => {
     const res = await request(app)
       .get('/rooms/search')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .query({ startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00'), minCapacity: 1 });
+      .query({ startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00'), minCapacity: 2 });
 
     const found = res.body.rooms.find((r: { id: string }) => r.id === room.id);
     expect(found.attributes).toContain(projector.name);
@@ -146,7 +146,7 @@ describe('room availability search', () => {
     expect(res.status).toBe(400);
   });
 
-  it('filters by a case-insensitive substring match on name or location', async () => {
+  it('filters by a case-insensitive substring match on name', async () => {
     const user = await createTestUser();
     const match = await createTestRoom({ name: 'Aspen Boardroom' });
     const other = await createTestRoom({ name: 'Birch Suite' });
@@ -154,7 +154,7 @@ describe('room availability search', () => {
     const res = await request(app)
       .get('/rooms/search')
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .query({ startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00'), minCapacity: 1, name: 'aspen' });
+      .query({ startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00'), minCapacity: 2, name: 'aspen' });
 
     const ids = res.body.rooms.map((r: { id: string }) => r.id);
     expect(ids).toContain(match.id);
@@ -173,7 +173,7 @@ describe('room availability search', () => {
       .query({
         startTime: daysFromNow(20, '10:00'),
         endTime: daysFromNow(20, '11:00'),
-        minCapacity: 1,
+        minCapacity: 2,
         name: 'Pageable Room',
         page: 1,
         pageSize: 2,
@@ -188,7 +188,7 @@ describe('room availability search', () => {
       .query({
         startTime: daysFromNow(20, '10:00'),
         endTime: daysFromNow(20, '11:00'),
-        minCapacity: 1,
+        minCapacity: 2,
         name: 'Pageable Room',
         page: 3,
         pageSize: 2,
@@ -230,10 +230,10 @@ describe('GET /rooms (catalogue listing)', () => {
     expect(res.body.pagination).toEqual({ page: 1, pageSize: 2, total: 3, totalPages: 2 });
   });
 
-  it('filters by name/location substring', async () => {
+  it('filters by name substring', async () => {
     const user = await createTestUser();
-    const match = await createTestRoom({ location: 'North Wing' });
-    const other = await createTestRoom({ location: 'South Wing' });
+    const match = await createTestRoom({ name: 'North Wing Suite' });
+    const other = await createTestRoom({ name: 'South Wing Suite' });
 
     const res = await request(app)
       .get('/rooms')
@@ -243,6 +243,19 @@ describe('GET /rooms (catalogue listing)', () => {
     const ids = res.body.rooms.map((r: { id: string }) => r.id);
     expect(ids).toContain(match.id);
     expect(ids).not.toContain(other.id);
+  });
+
+  it('returns each room\'s floor as a plain number', async () => {
+    const user = await createTestUser();
+    const room = await createTestRoom({ floor: 7 });
+
+    const res = await request(app)
+      .get('/rooms')
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .query({ page: 1, pageSize: 100 });
+
+    const found = res.body.rooms.find((r: { id: string }) => r.id === room.id);
+    expect(found.floor).toBe(7);
   });
 });
 
@@ -255,5 +268,140 @@ describe('GET /rooms/attributes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.attributes.length).toBeGreaterThan(0);
+  });
+});
+
+describe('room capacity bounds', () => {
+  it('rejects a capacity below 2', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+
+    const res = await request(app)
+      .post('/rooms')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .send({ name: 'Too Small', floor: 9, capacity: 1 });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts a capacity of exactly 2', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+
+    const res = await request(app)
+      .post('/rooms')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .send({ name: 'Min Capacity', floor: 9, capacity: 2 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.room.capacity).toBe(2);
+  });
+
+  it('rejects a capacity above 500', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+
+    const res = await request(app)
+      .post('/rooms')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .send({ name: 'Too Big', floor: 9, capacity: 501 });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts a capacity of exactly 500', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+
+    const res = await request(app)
+      .post('/rooms')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .send({ name: 'Max Capacity', floor: 9, capacity: 500 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.room.capacity).toBe(500);
+  });
+});
+
+describe('room name+floor uniqueness', () => {
+  it('rejects creating a room with the same name and floor as an existing one', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    await createTestRoom({ name: 'Aspen', floor: 3 });
+
+    const res = await request(app)
+      .post('/rooms')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .send({ name: 'Aspen', floor: 3, capacity: 10 });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('ROOM_DUPLICATE');
+  });
+
+  it('allows the same name on a different floor', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    await createTestRoom({ name: 'Aspen', floor: 3 });
+
+    const res = await request(app)
+      .post('/rooms')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .send({ name: 'Aspen', floor: 4, capacity: 10 });
+
+    expect(res.status).toBe(201);
+  });
+
+  it('rejects updating a room to collide with another existing room', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    await createTestRoom({ name: 'Birch', floor: 2 });
+    const roomToRename = await createTestRoom({ name: 'Cedar', floor: 2 });
+
+    const res = await request(app)
+      .patch(`/rooms/${roomToRename.id}`)
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .send({ name: 'Birch' });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('ROOM_DUPLICATE');
+  });
+});
+
+describe('GET /rooms booking visibility', () => {
+  it('includes a confirmed-booking count per room', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    await request(app)
+      .post('/bookings')
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ roomId: room.id, startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00') });
+
+    const res = await request(app).get('/rooms').set('Authorization', `Bearer ${admin.accessToken}`);
+
+    const found = res.body.rooms.find((r: { id: string }) => r.id === room.id);
+    expect(found._count.bookings).toBe(1);
+  });
+});
+
+describe('GET /rooms/:id/bookings', () => {
+  it('returns the confirmed bookings for a room with the owner email', async () => {
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    await request(app)
+      .post('/bookings')
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ roomId: room.id, startTime: daysFromNow(20, '10:00'), endTime: daysFromNow(20, '11:00') });
+
+    const res = await request(app).get(`/rooms/${room.id}/bookings`).set('Authorization', `Bearer ${user.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.bookings).toHaveLength(1);
+    expect(res.body.bookings[0].user.email).toBe(user.email);
+  });
+
+  it('returns 404 for a nonexistent room', async () => {
+    const user = await createTestUser();
+
+    const res = await request(app)
+      .get('/rooms/00000000-0000-0000-0000-000000000000/bookings')
+      .set('Authorization', `Bearer ${user.accessToken}`);
+
+    expect(res.status).toBe(404);
   });
 });

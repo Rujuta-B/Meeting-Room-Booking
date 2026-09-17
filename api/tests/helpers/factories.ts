@@ -43,11 +43,11 @@ export async function createTestUser(overrides: { role?: 'USER' | 'ADMIN'; email
   return { id: user.id, email: user.email, role: user.role, accessToken };
 }
 
-export async function createTestRoom(overrides: { capacity?: number; name?: string; location?: string } = {}) {
+export async function createTestRoom(overrides: { capacity?: number; name?: string; floor?: number } = {}) {
   return prisma.room.create({
     data: {
       name: overrides.name ?? `Room ${randomUUID().slice(0, 8)}`,
-      location: overrides.location ?? 'Test Floor',
+      floor: overrides.floor ?? 1,
       capacity: overrides.capacity ?? 10,
     },
   });

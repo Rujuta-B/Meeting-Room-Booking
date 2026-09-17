@@ -15,7 +15,7 @@ export function RoomSearchPage() {
     date: today,
     startTime: '10:00',
     endTime: '11:00',
-    minCapacity: '1',
+    minCapacity: '2',
     name: '',
     attributes: [],
   });
@@ -35,7 +35,7 @@ export function RoomSearchPage() {
       const { rooms, pagination: nextPagination } = await searchAvailableRooms({
         startTime,
         endTime,
-        minCapacity: Number(filters.minCapacity) || 1,
+        minCapacity: Number(filters.minCapacity) || 2,
         attributes: filters.attributes,
         name: filters.name.trim() || undefined,
         page,

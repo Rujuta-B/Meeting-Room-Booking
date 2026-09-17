@@ -18,6 +18,11 @@ export async function listAttributesHandler(_req: Request, res: Response): Promi
   res.json({ attributes });
 }
 
+export async function listRoomBookingsHandler(req: Request<{ id: string }>, res: Response): Promise<void> {
+  const bookings = await roomsService.listRoomBookings(req.params.id);
+  res.json({ bookings });
+}
+
 export async function createRoomHandler(req: Request<unknown, unknown, CreateRoomInput>, res: Response): Promise<void> {
   const room = await roomsService.createRoom(req.body);
   req.log.info({ roomId: room.id }, 'Room created');

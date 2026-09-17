@@ -71,7 +71,13 @@ model RefreshToken {
 model Room {
   id        String   @id @default(uuid())
   name      String
-  location  String
+  // A plain bounded integer, not free text - "floor" is inherently
+  // numeric, and a typed column is what makes "1st floor"/"Floor 1"/"1"
+  // structurally impossible to end up as three different values for the
+  // same room. The 1..50 bound is a hand-written CHECK constraint (see
+  // prisma/migrations/<ts>_room_location_to_floor/migration.sql) - Prisma's
+  // schema DSL has no way to express a CHECK constraint natively.
+  floor     Int
   capacity  Int
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -81,11 +87,22 @@ model Room {
   @@index([capacity])
   // No @@index([name]) here on purpose: a plain B-tree index doesn't
   // accelerate ILIKE '%substring%' search at all (it can only use a
-  // prefix match). The actual index backing name/location search is a
-  // hand-written GIN trigram index - see
+  // prefix match). The actual index backing name search is a hand-written
+  // GIN trigram index - see
   // prisma/migrations/20260101000002_add_room_name_search_index/migration.sql
   // - which Prisma's schema DSL has no way to express (same reason the
-  // booking EXCLUDE constraint above is hand-written too).
+  // booking EXCLUDE constraint above is hand-written too). Search is
+  // name-only: floor is a plain int, which ILIKE '%term%' can't
+  // meaningfully match against (and "2" would ambiguously match both
+  // "floor 2" and a room literally named "2") - see
+  // prisma/migrations/<ts>_room_location_to_floor/migration.sql, which
+  // drops the old location trigram index for exactly this reason.
+  //
+  // Composite unique on (name, floor): allows the same room name to be
+  // reused across different floors ("Focus Room" on floor 1 and floor 2),
+  // while blocking exact duplicates on the same floor - see
+  // rooms.service.ts for the P2002 -> 409 ROOM_DUPLICATE translation.
+  @@unique([name, floor])
   @@map("rooms")
 }
 
@@ -121,6 +138,19 @@ model RoomAttribute {
   @@map("room_attributes")
 }
 
+// Fixed set of cadences a series can repeat on - see
+// bookings.service.ts#computeOccurrenceStart for how each one turns into
+// actual occurrence dates. Deliberately closed (not an arbitrary
+// "repeat every N days" interval) so every series maps to a cadence a
+// person actually thinks in ("daily standup", "weekly 1:1", "monthly
+// review"), each with its own sane occurrence-count cap (see
+// bookings.schemas.ts's per-pattern CreateSeriesSchema variants).
+enum RecurrencePattern {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
 // A recurring series is PURE METADATA - deliberately no time range or
 // status of its own. This is what makes "cancel one occurrence without
 // touching the rest of the series" structurally guaranteed rather than
@@ -128,11 +158,19 @@ model RoomAttribute {
 // on this row that a single-occurrence cancellation could possibly disturb.
 // Each occurrence is its own independent Booking row (see below).
 model BookingSeries {
-  id              String   @id @default(uuid())
-  userId          String   @map("user_id")
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  roomId          String   @map("room_id")
-  dayOfWeek       Int      @map("day_of_week") // 0=Sunday..6=Saturday - descriptive/regeneration only
+  id      String            @id @default(uuid())
+  userId  String            @map("user_id")
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roomId  String            @map("room_id")
+  pattern RecurrencePattern @map("pattern")
+  // Meaningful only for its own pattern - null otherwise. Both are
+  // descriptive/regeneration metadata only, exactly like startTimeOfDay/
+  // endTimeOfDay below; the ACTUAL occurrence dates were already generated
+  // and stored as independent Booking rows at creation time (see
+  // bookings.service.ts#createSeries), so nothing ever re-derives dates
+  // from these columns after the fact.
+  dayOfWeek       Int?     @map("day_of_week") // 0=Sunday..6=Saturday - WEEKLY only
+  dayOfMonth      Int?     @map("day_of_month") // 1-31, pre-clamp anchor day - MONTHLY only
   startTimeOfDay  String   @map("start_time_of_day") // e.g. "10:00" - descriptive only
   endTimeOfDay    String   @map("end_time_of_day") // e.g. "11:00" - descriptive only
   occurrenceCount Int      @map("occurrence_count")

@@ -31,7 +31,7 @@
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../../prisma/client.js';
 import { ForbiddenError, NotFoundError, bookingAlreadyStartedError, notAShortenError } from '../../lib/errors.js';
-import type { CreateBookingInput, ShortenBookingInput, CreateSeriesInput } from './bookings.schemas.js';
+import type { CreateBookingInput, ShortenBookingInput, CreateSeriesInput, ListMyBookingsQueryInput } from './bookings.schemas.js';
 
 export interface BookingRecord {
   id: string;
@@ -44,7 +44,7 @@ export interface BookingRecord {
 }
 
 export interface BookingWithRoom extends BookingRecord {
-  room: { name: string; location: string };
+  room: { name: string; floor: number };
 }
 
 async function assertRoomExists(roomId: string): Promise<void> {
@@ -89,14 +89,29 @@ export async function createBooking(userId: string, input: CreateBookingInput, s
   };
 }
 
-// Includes the related room's name/location - a user with bookings across
+export interface ListMyBookingsResult {
+  bookings: BookingWithRoom[];
+  total: number;
+}
+
+// Includes the related room's name/floor - a user with bookings across
 // multiple rooms otherwise can't tell them apart in a plain time-only list.
-export async function listMyBookings(userId: string): Promise<BookingWithRoom[]> {
-  return prisma.booking.findMany({
-    where: { userId },
-    orderBy: { startTime: 'asc' },
-    include: { room: { select: { name: true, location: true } } },
-  });
+// Paginated the same way as the rooms list/search endpoints (see
+// rooms.schemas.ts's PaginationSchema): skip/take plus a separate count,
+// rather than returning every booking a user has ever made in one response.
+export async function listMyBookings(userId: string, input: ListMyBookingsQueryInput): Promise<ListMyBookingsResult> {
+  const [bookings, total] = await Promise.all([
+    prisma.booking.findMany({
+      where: { userId },
+      orderBy: { startTime: 'asc' },
+      include: { room: { select: { name: true, floor: true } } },
+      skip: (input.page - 1) * input.pageSize,
+      take: input.pageSize,
+    }),
+    prisma.booking.count({ where: { userId } }),
+  ]);
+
+  return { bookings, total };
 }
 
 async function getOwnedBooking(bookingId: string, userId: string): Promise<BookingRecord> {
@@ -191,16 +206,46 @@ export async function shortenBooking(bookingId: string, userId: string, input: S
   return updated;
 }
 
-// WHY series creation happens inside a Prisma $transaction: creating 8
-// weekly occurrences should be all-or-nothing from the CALLER's point of
-// view - if occurrence #5 collides with an existing booking, we don't want
-// occurrences #1-4 left dangling as a "series" that's silently missing
-// half its weeks. Wrapping the whole loop in a transaction means any
-// failure (including a 23P01 from the exclusion constraint) rolls back
-// every occurrence created so far in this call. Note this transaction is
-// about CREATION being atomic - it has nothing to do with the overlap
-// guarantee itself, which is still owned entirely by the EXCLUDE
-// constraint on each individual INSERT.
+// Computes the Nth occurrence's start time for a given pattern, all
+// derived from the FIRST occurrence's own start (`firstStart`) - there is
+// no separate weekday/day-of-month input anywhere (see
+// bookings.schemas.ts's CreateSeriesSchema comment). MONTHLY clamps to the
+// last day of the target month when the anchor day doesn't exist there
+// (e.g. anchor day 31 in a 30-day or February target month) using the
+// standard "day 0 of next month = last day of this month" trick -
+// Date.UTC normalizes month overflow into the year, so this is correct
+// across year boundaries too.
+function computeOccurrenceStart(pattern: CreateSeriesInput['pattern'], firstStart: Date, index: number): Date {
+  if (pattern === 'DAILY') {
+    return new Date(firstStart.getTime() + index * 24 * 60 * 60 * 1000);
+  }
+  if (pattern === 'WEEKLY') {
+    return new Date(firstStart.getTime() + index * 7 * 24 * 60 * 60 * 1000);
+  }
+
+  const anchorDay = firstStart.getUTCDate();
+  const targetMonthIndex = firstStart.getUTCMonth() + index;
+  const daysInTargetMonth = new Date(Date.UTC(firstStart.getUTCFullYear(), targetMonthIndex + 1, 0)).getUTCDate();
+  const clampedDay = Math.min(anchorDay, daysInTargetMonth);
+
+  const result = new Date(firstStart);
+  result.setUTCMonth(targetMonthIndex, clampedDay);
+  return result;
+}
+
+// WHY series creation happens inside a Prisma $transaction: creating N
+// occurrences should be all-or-nothing from the CALLER's point of view - if
+// occurrence #5 collides with an existing booking, we don't want
+// occurrences #1-4 left dangling as a "series" that's silently missing part
+// of its run. Wrapping the whole loop in a transaction means any failure
+// (including a 23P01 from the exclusion constraint) rolls back every
+// occurrence created so far in this call. Note this transaction is about
+// CREATION being atomic - it has nothing to do with the overlap guarantee
+// itself, which is still owned entirely by the EXCLUDE constraint on each
+// individual INSERT. This holds regardless of which pattern generated the
+// occurrence dates below - DAILY/WEEKLY/MONTHLY all funnel through the same
+// per-occurrence raw INSERT, so the exact same guarantee applies to all
+// three.
 //
 // A DEFERRABLE (checked at COMMIT, not per-statement) exclusion constraint
 // combined with an interactive $transaction like this one is a documented
@@ -221,7 +266,9 @@ export async function createSeries(userId: string, input: CreateSeriesInput) {
       data: {
         userId,
         roomId: input.roomId,
-        dayOfWeek: input.startTime.getUTCDay(),
+        pattern: input.pattern,
+        dayOfWeek: input.pattern === 'WEEKLY' ? input.startTime.getUTCDay() : null,
+        dayOfMonth: input.pattern === 'MONTHLY' ? input.startTime.getUTCDate() : null,
         startTimeOfDay: input.startTime.toISOString().slice(11, 16),
         endTimeOfDay: input.endTime.toISOString().slice(11, 16),
         occurrenceCount: input.occurrenceCount,
@@ -229,8 +276,8 @@ export async function createSeries(userId: string, input: CreateSeriesInput) {
     });
 
     const occurrences: BookingRecord[] = [];
-    for (let week = 0; week < input.occurrenceCount; week += 1) {
-      const occurrenceStart = new Date(input.startTime.getTime() + week * 7 * 24 * 60 * 60 * 1000);
+    for (let i = 0; i < input.occurrenceCount; i += 1) {
+      const occurrenceStart = computeOccurrenceStart(input.pattern, input.startTime, i);
       const occurrenceEnd = new Date(occurrenceStart.getTime() + durationMs);
       const id = randomUUID();
 

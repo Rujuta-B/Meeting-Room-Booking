@@ -6,8 +6,12 @@
 // independently re-check the role server-side regardless of what this
 // nav bar shows or hides.
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext.jsx';
+
+function navLinkClassName({ isActive }) {
+  return isActive ? 'active' : undefined;
+}
 
 const THEME_STORAGE_KEY = 'theme';
 const THEME_CYCLE = { system: 'light', light: 'dark', dark: 'system' };
@@ -78,13 +82,14 @@ export function NavBar() {
       </div>
       {status === 'authenticated' && (
         <div className="navbar-links">
-          <Link to="/">Search</Link>
-          <Link to="/bookings/new-series">Book a series</Link>
-          <Link to="/my-bookings">My bookings</Link>
+          <NavLink to="/" end className={navLinkClassName}>Search</NavLink>
+          <NavLink to="/rooms" className={navLinkClassName}>Browse rooms</NavLink>
+          <NavLink to="/bookings/new-series" className={navLinkClassName}>Book a series</NavLink>
+          <NavLink to="/my-bookings" className={navLinkClassName}>My bookings</NavLink>
           {user.role === 'ADMIN' && (
             <>
-              <Link to="/admin/utilisation">Utilisation</Link>
-              <Link to="/admin/rooms">Manage rooms</Link>
+              <NavLink to="/admin/utilisation" className={navLinkClassName}>Utilisation</NavLink>
+              <NavLink to="/admin/rooms" className={navLinkClassName}>Manage rooms</NavLink>
             </>
           )}
           <span className="navbar-user">{user.email}</span>

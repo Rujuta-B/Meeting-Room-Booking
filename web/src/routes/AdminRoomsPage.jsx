@@ -1,9 +1,12 @@
 // src/routes/AdminRoomsPage.jsx
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { listRooms, createRoom, updateRoom } from '../api/rooms.js';
 import { RoomForm } from '../components/admin/RoomForm.jsx';
 import { ErrorBanner } from '../components/ErrorBanner.jsx';
 import { Pagination } from '../components/Pagination.jsx';
+import { ApiError } from '../lib/ApiError.js';
+import { useToast } from '../components/ToastProvider.jsx';
+import { formatFloorLabel } from '../lib/floor.js';
 
 export function AdminRoomsPage() {
   const [rooms, setRooms] = useState(null);
@@ -12,7 +15,11 @@ export function AdminRoomsPage() {
   const [page, setPage] = useState(1);
   const [editingRoomId, setEditingRoomId] = useState(null);
   const [error, setError] = useState(null);
+  const [formError, setFormError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [highlightForm, setHighlightForm] = useState(false);
+  const formSectionRef = useRef(null);
+  const showToast = useToast();
 
   const reload = useCallback(async () => {
     try {
@@ -36,14 +43,35 @@ export function AdminRoomsPage() {
     setPage(1);
   }
 
+  function handleEditClick(roomId) {
+    setEditingRoomId(roomId);
+    setFormError(null);
+    if (formSectionRef.current) {
+      // Plain scrollIntoView({ block: 'start' }) aligns the section's top edge
+      // with the viewport top, which lands right under the sticky navbar and
+      // hides the heading/first field - so offset by the navbar's own height.
+      const navbarHeight = document.querySelector('.navbar')?.getBoundingClientRect().height ?? 0;
+      const top = formSectionRef.current.getBoundingClientRect().top + window.scrollY - navbarHeight;
+      window.scrollTo({ top, behavior: 'smooth' });
+    }
+    setHighlightForm(true);
+    setTimeout(() => setHighlightForm(false), 1200); // matches the CSS pulse animation's duration
+  }
+
   async function handleCreate(input) {
     setError(null);
+    setFormError(null);
     setSubmitting(true);
     try {
       await createRoom(input);
       await reload();
-    } catch {
-      setError('Could not create the room.');
+      showToast('Room created.');
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'ROOM_DUPLICATE') {
+        setFormError(err.message);
+      } else {
+        setError('Could not create the room.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -51,13 +79,19 @@ export function AdminRoomsPage() {
 
   async function handleUpdate(roomId, input) {
     setError(null);
+    setFormError(null);
     setSubmitting(true);
     try {
       await updateRoom(roomId, input);
       setEditingRoomId(null);
       await reload();
-    } catch {
-      setError('Could not update the room.');
+      showToast('Room updated.');
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'ROOM_DUPLICATE') {
+        setFormError(err.message);
+      } else {
+        setError('Could not update the room.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -72,16 +106,17 @@ export function AdminRoomsPage() {
       <h1>Manage rooms</h1>
       {error && <ErrorBanner message={error} />}
 
-      <section>
+      <section ref={formSectionRef} className={highlightForm ? 'room-form-section highlight-pulse' : 'room-form-section'}>
         <h2>{editingRoom ? `Edit ${editingRoom.name}` : 'Add a room'}</h2>
         <RoomForm
           key={editingRoomId ?? 'new'} // remount the form with fresh defaults whenever the target room changes
           initial={editingRoom}
           submitting={submitting}
+          serverError={formError}
           onSubmit={(input) => (editingRoom ? handleUpdate(editingRoom.id, input) : handleCreate(input))}
         />
         {editingRoom && (
-          <button type="button" onClick={() => setEditingRoomId(null)}>
+          <button type="button" onClick={() => { setEditingRoomId(null); setFormError(null); }}>
             Cancel edit
           </button>
         )}
@@ -90,10 +125,10 @@ export function AdminRoomsPage() {
       <section>
         <h2>Existing rooms</h2>
         <label className="admin-room-search">
-          Search by name or location
+          Search by name
           <input
             type="text"
-            placeholder="e.g. Aspen, 3rd floor"
+            placeholder="e.g. Cedar"
             value={nameFilter}
             onChange={(e) => handleNameFilterChange(e.target.value)}
           />
@@ -101,14 +136,28 @@ export function AdminRoomsPage() {
         {rooms.length === 0 ? (
           <p>No rooms match that search.</p>
         ) : (
-          <ul className="admin-room-list">
+          <ul className="admin-room-grid">
             {rooms.map((room) => (
-              <li key={room.id}>
-                <strong>{room.name}</strong> — {room.location}, capacity {room.capacity}
-                {room.attributes.length > 0 && <> ({room.attributes.map((a) => a.attribute.name).join(', ')})</>}
-                <button type="button" onClick={() => setEditingRoomId(room.id)}>
-                  Edit
-                </button>
+              <li key={room.id} className={`room-card admin-room-card ${editingRoomId === room.id ? 'admin-room-card-editing' : ''}`}>
+                <div className="admin-room-card-header">
+                  <div>
+                    <h3>{room.name}</h3>
+                    <p>{formatFloorLabel(room.floor)}</p>
+                    <p>Capacity: {room.capacity}</p>
+                  </div>
+                  <button type="button" onClick={() => handleEditClick(room.id)}>
+                    Edit
+                  </button>
+                </div>
+                {room.attributes.length > 0 && (
+                  <div className="attribute-tags">
+                    {room.attributes.map((a) => (
+                      <span key={a.attribute.id} className="attribute-tag">
+                        {a.attribute.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </li>
             ))}
           </ul>

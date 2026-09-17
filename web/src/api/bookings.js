@@ -9,9 +9,17 @@ export async function createBooking(roomId, startTime, endTime) {
   return booking;
 }
 
-export async function listMyBookings() {
-  const { bookings } = await apiFetch('/bookings/me');
-  return bookings;
+/**
+ * @param {{ page?: number, pageSize?: number }} [options]
+ * @returns {Promise<{ bookings: object[], pagination: { page: number, pageSize: number, total: number, totalPages: number } }>}
+ */
+export async function listMyBookings({ page, pageSize } = {}) {
+  const params = new URLSearchParams({
+    ...(page ? { page: String(page) } : {}),
+    ...(pageSize ? { pageSize: String(pageSize) } : {}),
+  });
+  const query = params.toString();
+  return apiFetch(`/bookings/me${query ? `?${query}` : ''}`);
 }
 
 export async function cancelBooking(bookingId) {
@@ -26,10 +34,10 @@ export async function shortenBooking(bookingId, endTime) {
   return booking;
 }
 
-export async function createSeries(roomId, startTime, endTime, occurrenceCount) {
+export async function createSeries(roomId, startTime, endTime, occurrenceCount, pattern) {
   return apiFetch('/bookings/series', {
     method: 'POST',
-    body: JSON.stringify({ roomId, startTime, endTime, occurrenceCount }),
+    body: JSON.stringify({ roomId, startTime, endTime, occurrenceCount, pattern }),
   });
 }
 
