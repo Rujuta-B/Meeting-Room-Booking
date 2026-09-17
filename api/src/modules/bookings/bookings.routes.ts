@@ -10,7 +10,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../lib/asyncHandler.js';
 import { authenticate } from '../../middleware/authenticate.js';
 import { validate } from '../../middleware/validate.js';
-import { CreateBookingSchema, ShortenBookingSchema, CreateSeriesSchema } from './bookings.schemas.js';
+import { CreateBookingSchema, ShortenBookingSchema, CreateSeriesSchema, ListMyBookingsQuerySchema } from './bookings.schemas.js';
 import {
   createBookingHandler,
   listMyBookingsHandler,
@@ -23,7 +23,7 @@ import {
 export const bookingRoutes = Router();
 
 bookingRoutes.post('/', authenticate, validate(CreateBookingSchema), asyncHandler(createBookingHandler));
-bookingRoutes.get('/me', authenticate, asyncHandler(listMyBookingsHandler));
+bookingRoutes.get('/me', authenticate, validate(ListMyBookingsQuerySchema, 'query'), asyncHandler(listMyBookingsHandler));
 bookingRoutes.delete('/:id', authenticate, asyncHandler(cancelBookingHandler));
 bookingRoutes.patch('/:id/shorten', authenticate, validate(ShortenBookingSchema), asyncHandler(shortenBookingHandler));
 

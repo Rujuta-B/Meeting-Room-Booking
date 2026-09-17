@@ -30,8 +30,16 @@ export function buildPaginationMeta(input: PaginationInput, total: number): Pagi
 
 export const CreateRoomSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
-  location: z.string().min(1, 'Location is required.'),
-  capacity: z.number().int().positive('Capacity must be a positive integer.'),
+  // A bounded integer, not free text - see schema.prisma's comment on
+  // Room.floor for why "floor" is validated as a plain number rather than
+  // a string that could be "Floor 2", "2nd floor", or "2" depending on who
+  // typed it.
+  floor: z.number().int().min(1, 'Floor must be at least 1.').max(50, 'Floor cannot exceed 50.'),
+  // Floored at 2 (a "room" for exactly one person isn't a meeting room)
+  // and capped at 500: generous enough for any real conference
+  // room/auditorium while rejecting obvious garbage input (e.g. an
+  // 18-digit number typed into the field by mistake).
+  capacity: z.number().int().min(2, 'Capacity must be at least 2.').max(500, 'Capacity cannot exceed 500.'),
   // Attribute NAMES, not ids - keeps the admin room-creation payload
   // human-readable; the service resolves names to Attribute rows,
   // creating any that don't exist yet.
@@ -53,10 +61,16 @@ export const SearchAvailabilitySchema = z
   .object({
     startTime: z.coerce.date({ errorMap: () => ({ message: 'startTime must be a valid ISO date-time.' }) }),
     endTime: z.coerce.date({ errorMap: () => ({ message: 'endTime must be a valid ISO date-time.' }) }),
-    minCapacity: z.coerce.number().int().positive().default(1),
-    // Free-text substring match against name OR location, e.g. "3rd floor"
-    // or "Aspen" - resolved as a case-insensitive ILIKE in the service, not
-    // fetched-then-filtered in JS.
+    // Floored at 2, matching CreateRoomSchema's room-capacity floor - no
+    // room can ever have capacity 1, so a lower minCapacity would be
+    // meaningless.
+    minCapacity: z.coerce.number().int().min(2).default(2),
+    // Free-text substring match against name only, e.g. "Aspen" - resolved
+    // as a case-insensitive ILIKE in the service, not fetched-then-filtered
+    // in JS. Floor is deliberately NOT part of this search: it's a plain
+    // int (see schema.prisma's Room.floor comment), which ILIKE can't
+    // usefully match, and "2" would ambiguously match both "floor 2" and a
+    // room literally named "2".
     name: z.string().trim().min(1).optional(),
     // Comma-separated attribute names in the query string, e.g.
     // ?attributes=projector,whiteboard - transformed into a clean array.

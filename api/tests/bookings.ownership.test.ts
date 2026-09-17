@@ -72,15 +72,15 @@ describe('booking ownership enforcement', () => {
     expect(res.status).toBe(204);
   });
 
-  it('includes the room name/location alongside each booking in /bookings/me', async () => {
-    const room = await createTestRoom({ name: 'Sunflower', location: 'Floor 3' });
+  it('includes the room name/floor alongside each booking in /bookings/me', async () => {
+    const room = await createTestRoom({ name: 'Sunflower', floor: 3 });
     const owner = await createTestUser();
     await createBookingAs(owner.accessToken, room.id);
 
     const res = await request(app).get('/bookings/me').set('Authorization', `Bearer ${owner.accessToken}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.bookings[0].room).toEqual({ name: 'Sunflower', location: 'Floor 3' });
+    expect(res.body.bookings[0].room).toEqual({ name: 'Sunflower', floor: 3 });
   });
 
   it('rejects every booking mutation with no auth token at all (no anonymous path)', async () => {

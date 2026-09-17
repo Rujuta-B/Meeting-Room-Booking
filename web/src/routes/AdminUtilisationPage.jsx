@@ -1,8 +1,13 @@
 // src/routes/AdminUtilisationPage.jsx
-import { useState } from 'react';
-import { getUtilisationReport } from '../api/admin.js';
+import { useEffect, useState } from 'react';
+import { getUtilisationReport, getRoomDayTimeline } from '../api/admin.js';
+import { listRooms } from '../api/rooms.js';
 import { UtilisationTable } from '../components/admin/UtilisationTable.jsx';
+import { DayTimeline } from '../components/admin/DayTimeline.jsx';
+import { RoomDayBookingsTable } from '../components/admin/RoomDayBookingsTable.jsx';
 import { ErrorBanner } from '../components/ErrorBanner.jsx';
+import { DatePicker } from '../components/DatePicker.jsx';
+import { Select } from '../components/Select.jsx';
 
 function firstOfMonth() {
   const d = new Date();
@@ -15,9 +20,17 @@ function today() {
 export function AdminUtilisationPage() {
   const [rangeStart, setRangeStart] = useState(firstOfMonth());
   const [rangeEnd, setRangeEnd] = useState(today());
+  const [roomId, setRoomId] = useState('');
   const [report, setReport] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [rooms, setRooms] = useState([]);
+
+  useEffect(() => {
+    listRooms({ pageSize: 100 })
+      .then((r) => setRooms(r.rooms))
+      .catch(() => setRooms([]));
+  }, []);
 
   async function handleFetch(e) {
     e.preventDefault();
@@ -38,7 +51,9 @@ export function AdminUtilisationPage() {
       const endOfSelectedDay = new Date(rangeEnd);
       endOfSelectedDay.setDate(endOfSelectedDay.getDate() + 1);
 
-      const result = await getUtilisationReport(new Date(rangeStart).toISOString(), endOfSelectedDay.toISOString());
+      const result = await getUtilisationReport(new Date(rangeStart).toISOString(), endOfSelectedDay.toISOString(), {
+        roomId: roomId || undefined,
+      });
       setReport(result.report);
     } catch {
       setError('Could not load the utilisation report.');
@@ -47,24 +62,80 @@ export function AdminUtilisationPage() {
     }
   }
 
+  const [timelineDate, setTimelineDate] = useState(today());
+  const [timelineRoomId, setTimelineRoomId] = useState('');
+  const [slots, setSlots] = useState(null);
+  const [timelineError, setTimelineError] = useState(null);
+
+  useEffect(() => {
+    if (!timelineRoomId) {
+      setSlots(null);
+      return;
+    }
+    setTimelineError(null);
+    getRoomDayTimeline(timelineRoomId, timelineDate)
+      .then((r) => setSlots(r.slots))
+      .catch(() => setTimelineError('Could not load the timeline.'));
+  }, [timelineRoomId, timelineDate]);
+
   return (
     <div className="admin-utilisation-page">
       <h1>Room utilisation</h1>
-      <form onSubmit={handleFetch}>
+      <form className="utilisation-filter-bar" onSubmit={handleFetch}>
         <label>
           From
-          <input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} required />
+          <DatePicker value={rangeStart} onChange={setRangeStart} required />
         </label>
         <label>
           To
-          <input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} required />
+          <DatePicker value={rangeEnd} onChange={setRangeEnd} required />
+        </label>
+        <label>
+          Room
+          <Select
+            value={roomId}
+            onChange={setRoomId}
+            placeholder="All rooms"
+            options={[{ value: '', label: 'All rooms' }, ...rooms.map((r) => ({ value: r.id, label: r.name }))]}
+          />
         </label>
         <button type="submit" disabled={loading}>
           {loading ? 'Loading…' : 'Run report'}
         </button>
       </form>
       {error && <ErrorBanner message={error} />}
-      {report && <UtilisationTable report={report} />}
+      {report && (
+        <div className="utilisation-table-wrap">
+          <UtilisationTable report={report} />
+        </div>
+      )}
+
+      <section className="day-timeline-section">
+        <h2>Day timeline</h2>
+        <div className="utilisation-filter-bar">
+          <label>
+            Room
+            <Select
+              value={timelineRoomId}
+              onChange={setTimelineRoomId}
+              placeholder="Select a room…"
+              options={rooms.map((r) => ({ value: r.id, label: r.name }))}
+            />
+          </label>
+          <label>
+            Date
+            <DatePicker value={timelineDate} onChange={setTimelineDate} />
+          </label>
+        </div>
+        {timelineError && <ErrorBanner message={timelineError} />}
+        {!timelineRoomId && <p className="day-timeline-empty">Select a room to see its timeline.</p>}
+        {timelineRoomId && slots && (
+          <>
+            <DayTimeline slots={slots} date={timelineDate} />
+            <RoomDayBookingsTable slots={slots} />
+          </>
+        )}
+      </section>
     </div>
   );
 }

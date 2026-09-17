@@ -1,7 +1,8 @@
 // src/modules/bookings/bookings.controller.ts
 import type { Request, Response } from 'express';
 import * as bookingsService from './bookings.service.js';
-import type { CreateBookingInput, ShortenBookingInput, CreateSeriesInput } from './bookings.schemas.js';
+import { buildPaginationMeta } from '../rooms/rooms.schemas.js';
+import type { CreateBookingInput, ShortenBookingInput, CreateSeriesInput, ListMyBookingsQueryInput } from './bookings.schemas.js';
 
 export async function createBookingHandler(req: Request<unknown, unknown, CreateBookingInput>, res: Response): Promise<void> {
   // req.user is guaranteed to exist here because `authenticate` runs
@@ -11,9 +12,14 @@ export async function createBookingHandler(req: Request<unknown, unknown, Create
   res.status(201).json({ booking });
 }
 
+// WHY req.query is read as `unknown` and cast: same reasoning as
+// rooms.controller.ts's listRoomsHandler - validate() already replaced
+// req.query with the parsed, coerced ListMyBookingsQueryInput before this
+// handler runs.
 export async function listMyBookingsHandler(req: Request, res: Response): Promise<void> {
-  const bookings = await bookingsService.listMyBookings(req.user!.id);
-  res.json({ bookings });
+  const query = req.query as unknown as ListMyBookingsQueryInput;
+  const { bookings, total } = await bookingsService.listMyBookings(req.user!.id, query);
+  res.json({ bookings, pagination: buildPaginationMeta(query, total) });
 }
 
 export async function cancelBookingHandler(req: Request<{ id: string }>, res: Response): Promise<void> {

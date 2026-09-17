@@ -1,7 +1,7 @@
 // src/modules/rooms/rooms.service.ts
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../prisma/client.js';
-import { NotFoundError } from '../../lib/errors.js';
+import { NotFoundError, roomDuplicateError } from '../../lib/errors.js';
 import type { CreateRoomInput, UpdateRoomInput, SearchAvailabilityInput, ListRoomsQueryInput } from './rooms.schemas.js';
 
 export interface ListRoomsResult {
@@ -10,17 +10,25 @@ export interface ListRoomsResult {
 }
 
 export async function listRooms(input: ListRoomsQueryInput): Promise<ListRoomsResult> {
-  // name matches against room name OR location, case-insensitively - a
-  // real WHERE clause evaluated by Postgres, not "fetch every room and
-  // filter in JS" (the anti-pattern the spec forbids for room search).
+  // name matches against room name only, case-insensitively - a real WHERE
+  // clause evaluated by Postgres, not "fetch every room and filter in JS"
+  // (the anti-pattern the spec forbids for room search). Floor is a plain
+  // int (see schema.prisma's Room.floor comment) and isn't part of this
+  // substring search.
   const where: Prisma.RoomWhereInput | undefined = input.name
-    ? { OR: [{ name: { contains: input.name, mode: 'insensitive' } }, { location: { contains: input.name, mode: 'insensitive' } }] }
+    ? { name: { contains: input.name, mode: 'insensitive' } }
     : undefined;
 
   const [rooms, total] = await Promise.all([
     prisma.room.findMany({
       where,
-      include: { attributes: { include: { attribute: true } } },
+      include: {
+        attributes: { include: { attribute: true } },
+        // Confirmed-booking count per room, for the admin table's
+        // "Bookings" column - one aggregated COUNT per room row, not a
+        // per-room round trip or a full booking list fetched up front.
+        _count: { select: { bookings: { where: { status: 'CONFIRMED' } } } },
+      },
       orderBy: { name: 'asc' },
       skip: (input.page - 1) * input.pageSize,
       take: input.pageSize,
@@ -35,11 +43,37 @@ export async function listAttributes() {
   return prisma.attribute.findMany({ orderBy: { name: 'asc' } });
 }
 
+// Drill-down for the admin table's "Bookings" column: the room's own
+// confirmed bookings and who made them, fetched lazily on demand rather
+// than joined into every listRooms() page. Capped at 20 - this is a
+// preview, not a full history export.
+export async function listRoomBookings(roomId: string) {
+  const room = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true } });
+  if (!room) throw new NotFoundError('Room');
+
+  return prisma.booking.findMany({
+    where: { roomId, status: 'CONFIRMED' },
+    orderBy: { startTime: 'desc' },
+    take: 20,
+    include: { user: { select: { email: true } } },
+  });
+}
+
 export async function createRoom(input: CreateRoomInput) {
   return prisma.$transaction(async (tx) => {
-    const room = await tx.room.create({
-      data: { name: input.name, location: input.location, capacity: input.capacity },
-    });
+    let room;
+    try {
+      room = await tx.room.create({
+        data: { name: input.name, floor: input.floor, capacity: input.capacity },
+      });
+    } catch (err) {
+      // P2002: the rooms(name, floor) unique constraint fired - this
+      // exact (name, floor) pair already exists on another room.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw roomDuplicateError();
+      }
+      throw err;
+    }
 
     for (const attrName of input.attributes) {
       // upsert: reuse the Attribute row if an admin already created
@@ -66,14 +100,21 @@ export async function updateRoom(roomId: string, input: UpdateRoomInput) {
   if (!existing) throw new NotFoundError('Room');
 
   return prisma.$transaction(async (tx) => {
-    await tx.room.update({
-      where: { id: roomId },
-      data: {
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.location !== undefined ? { location: input.location } : {}),
-        ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
-      },
-    });
+    try {
+      await tx.room.update({
+        where: { id: roomId },
+        data: {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.floor !== undefined ? { floor: input.floor } : {}),
+          ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw roomDuplicateError();
+      }
+      throw err;
+    }
 
     if (input.attributes !== undefined) {
       // Simplest-to-reason-about approach for a POC: replace the whole
@@ -101,7 +142,7 @@ export async function updateRoom(roomId: string, input: UpdateRoomInput) {
 interface AvailableRoomRow {
   id: string;
   name: string;
-  location: string;
+  floor: number;
   capacity: number;
   total_count: bigint;
 }
@@ -109,7 +150,7 @@ interface AvailableRoomRow {
 export interface AvailableRoomResult {
   id: string;
   name: string;
-  location: string;
+  floor: number;
   capacity: number;
   attributes: string[];
 }
@@ -163,10 +204,10 @@ export async function searchAvailableRooms(input: SearchAvailabilityInput): Prom
   // metadata comes from one query instead of a second round-trip COUNT(*)
   // against the same WHERE/NOT EXISTS logic.
   const rooms = await prisma.$queryRaw<AvailableRoomRow[]>`
-    SELECT r.id, r.name, r.location, r.capacity, COUNT(*) OVER() AS total_count
+    SELECT r.id, r.name, r.floor, r.capacity, COUNT(*) OVER() AS total_count
     FROM rooms r
     WHERE r.capacity >= ${input.minCapacity}
-      AND (${namePattern}::text IS NULL OR r.name ILIKE ${namePattern} OR r.location ILIKE ${namePattern})
+      AND (${namePattern}::text IS NULL OR r.name ILIKE ${namePattern})
       AND NOT EXISTS (
         SELECT 1 FROM bookings b
         WHERE b.room_id = r.id
@@ -214,7 +255,7 @@ export async function searchAvailableRooms(input: SearchAvailabilityInput): Prom
     rooms: rooms.map((room) => ({
       id: room.id,
       name: room.name,
-      location: room.location,
+      floor: room.floor,
       capacity: room.capacity,
       attributes: attributesByRoomId.get(room.id) ?? [],
     })),

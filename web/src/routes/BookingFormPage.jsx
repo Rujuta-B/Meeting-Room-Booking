@@ -9,6 +9,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createBooking } from '../api/bookings.js';
 import { searchAvailableRooms } from '../api/rooms.js';
 import { formatDateTime } from '../lib/dateRange.js';
+import { formatFloorLabel } from '../lib/floor.js';
 import { ApiError } from '../lib/ApiError.js';
 import { BookingConflictBanner } from '../components/bookings/BookingConflictBanner.jsx';
 import { ErrorBanner } from '../components/ErrorBanner.jsx';
@@ -44,7 +45,7 @@ export function BookingFormPage() {
         // failed. This re-uses the same search the room list came from,
         // for the exact window they wanted.
         try {
-          const { rooms } = await searchAvailableRooms({ startTime, endTime, minCapacity: 1 });
+          const { rooms } = await searchAvailableRooms({ startTime, endTime, minCapacity: 2 });
           setRefreshedRooms(rooms);
         } catch {
           // If even the re-check fails, that's fine - the conflict banner
@@ -95,7 +96,7 @@ export function BookingFormPage() {
             <ul>
               {refreshedRooms.map((room) => (
                 <li key={room.id}>
-                  {room.name} ({room.location}) — capacity {room.capacity}
+                  {room.name} ({formatFloorLabel(room.floor)}) — capacity {room.capacity}
                   {room.id !== roomId && (
                     <button
                       type="button"

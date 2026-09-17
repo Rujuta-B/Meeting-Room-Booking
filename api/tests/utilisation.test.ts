@@ -160,3 +160,84 @@ describe('utilisation report', () => {
     expect(res.body.pagination).toEqual({ page: 1, pageSize: 2, total: 3, totalPages: 2 });
   });
 });
+
+describe('day timeline', () => {
+  it('returns 403 for a non-admin user', async () => {
+    const user = await createTestUser({ role: 'USER' });
+    const room = await createTestRoom();
+
+    const res = await request(app)
+      .get('/utilisation/day-timeline')
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .query({ roomId: room.id, date: daysFromNow(10, '00:00') });
+
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 401 with no auth at all', async () => {
+    const room = await createTestRoom();
+
+    const res = await request(app)
+      .get('/utilisation/day-timeline')
+      .query({ roomId: room.id, date: daysFromNow(10, '00:00') });
+
+    expect(res.status).toBe(401);
+  });
+
+  it('returns only bookings overlapping the requested day for the requested room', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    const targetDayBooking = await request(app)
+      .post('/bookings')
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ roomId: room.id, startTime: daysFromNow(10, '10:00'), endTime: daysFromNow(10, '11:00') });
+
+    // A booking on the adjacent day - must NOT appear in the target day's timeline.
+    await request(app)
+      .post('/bookings')
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ roomId: room.id, startTime: daysFromNow(11, '10:00'), endTime: daysFromNow(11, '11:00') });
+
+    const res = await request(app)
+      .get('/utilisation/day-timeline')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ roomId: room.id, date: daysFromNow(10, '00:00') });
+
+    expect(res.status).toBe(200);
+    expect(res.body.slots).toHaveLength(1);
+    expect(res.body.slots[0].bookingId).toBe(targetDayBooking.body.booking.id);
+  });
+
+  it('includes a booking that starts the prior day and ends after midnight into the target day', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    // Starts 23:00 on day 9, ends 01:00 on day 10 - overlaps day 10's window.
+    const overnightBooking = await request(app)
+      .post('/bookings')
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ roomId: room.id, startTime: daysFromNow(9, '23:00'), endTime: daysFromNow(10, '01:00') });
+
+    const res = await request(app)
+      .get('/utilisation/day-timeline')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ roomId: room.id, date: daysFromNow(10, '00:00') });
+
+    expect(res.body.slots.map((s: { bookingId: string }) => s.bookingId)).toContain(overnightBooking.body.booking.id);
+  });
+
+  it('returns no slots for a room/date with no confirmed bookings', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const room = await createTestRoom();
+
+    const res = await request(app)
+      .get('/utilisation/day-timeline')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ roomId: room.id, date: daysFromNow(10, '00:00') });
+
+    expect(res.body.slots).toEqual([]);
+  });
+});

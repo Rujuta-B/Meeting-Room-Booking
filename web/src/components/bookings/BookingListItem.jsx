@@ -1,10 +1,12 @@
 // src/components/bookings/BookingListItem.jsx
 import { useState } from 'react';
 import { formatDateTime, toIsoDateTime, fromIsoDateTime } from '../../lib/dateRange.js';
+import { formatFloorLabel } from '../../lib/floor.js';
+import { DatePicker } from '../DatePicker.jsx';
 
 /**
  * @param {{
- *   booking: { id: string, startTime: string, endTime: string, status: string, room?: { name: string, location: string } },
+ *   booking: { id: string, startTime: string, endTime: string, status: string, room?: { name: string, floor: number } },
  *   isSeriesMember: boolean,
  *   onCancel?: (bookingId: string) => void,
  *   onShorten?: (bookingId: string, newEndTime: string) => void,
@@ -17,7 +19,9 @@ export function BookingListItem({ booking, isSeriesMember, onCancel, onShorten, 
   const [newEndTime, setNewEndTime] = useState(() => fromIsoDateTime(booking.endTime).time);
   const [shortenError, setShortenError] = useState(null);
 
-  const alreadyStarted = new Date(booking.startTime) <= new Date();
+  const now = new Date();
+  const alreadyStarted = new Date(booking.startTime) <= now;
+  const alreadyFinished = new Date(booking.endTime) <= now;
   const isCancelled = booking.status === 'CANCELLED';
   const currentEnd = fromIsoDateTime(booking.endTime);
 
@@ -44,7 +48,7 @@ export function BookingListItem({ booking, isSeriesMember, onCancel, onShorten, 
       <div className="booking-item-details">
         {booking.room && (
           <span className="booking-item-room">
-            {booking.room.name} — {booking.room.location}
+            {booking.room.name} — {formatFloorLabel(booking.room.floor)}
           </span>
         )}
         <strong>{formatDateTime(booking.startTime)}</strong> – {formatDateTime(booking.endTime)}
@@ -56,15 +60,10 @@ export function BookingListItem({ booking, isSeriesMember, onCancel, onShorten, 
         <div className="booking-item-actions">
           {shortening ? (
             <span className="shorten-form">
-              {/* `max` is a UX hint (browsers vary in how strictly they
-                  enforce it), not the real guard - submitShorten()'s own
-                  check above, and the backend's, are what actually matter. */}
-              <input
-                type="date"
-                value={newEndDate}
-                max={currentEnd.date}
-                onChange={(e) => setNewEndDate(e.target.value)}
-              />
+              {/* `max` disables any date past the current end date in the
+                  calendar itself - submitShorten()'s own check above, and
+                  the backend's, are still what actually enforce it. */}
+              <DatePicker value={newEndDate} onChange={setNewEndDate} max={currentEnd.date} disablePast />
               <input type="time" value={newEndTime} onChange={(e) => setNewEndTime(e.target.value)} />
               <button type="button" onClick={submitShorten}>
                 Save
@@ -96,7 +95,9 @@ export function BookingListItem({ booking, isSeriesMember, onCancel, onShorten, 
         </div>
       )}
 
-      {!isCancelled && alreadyStarted && <span className="booking-item-note">Already started</span>}
+      {!isCancelled && alreadyStarted && (
+        <span className="booking-item-note">{alreadyFinished ? 'Finished' : 'Already started'}</span>
+      )}
     </li>
   );
 }

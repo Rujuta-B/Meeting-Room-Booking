@@ -38,14 +38,14 @@ async function main() {
   const existingRooms = await prisma.room.count();
   if (existingRooms === 0) {
     const sunflower = await prisma.room.create({
-      data: { name: 'Sunflower', location: 'Floor 1', capacity: 4 },
+      data: { name: 'Sunflower', floor: 1, capacity: 4 },
     });
     await prisma.roomAttribute.createMany({
       data: [{ roomId: sunflower.id, attributeId: whiteboard.id }],
     });
 
     const oak = await prisma.room.create({
-      data: { name: 'Oak', location: 'Floor 2', capacity: 10 },
+      data: { name: 'Oak', floor: 2, capacity: 10 },
     });
     await prisma.roomAttribute.createMany({
       data: [
@@ -55,7 +55,7 @@ async function main() {
     });
 
     const cedar = await prisma.room.create({
-      data: { name: 'Cedar', location: 'Floor 2', capacity: 20 },
+      data: { name: 'Cedar', floor: 2, capacity: 20 },
     });
     await prisma.roomAttribute.createMany({
       data: [

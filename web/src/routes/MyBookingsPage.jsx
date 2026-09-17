@@ -3,16 +3,19 @@ import { useEffect, useState, useCallback } from 'react';
 import { listMyBookings, cancelBooking, shortenBooking, cancelSeriesOccurrence } from '../api/bookings.js';
 import { BookingListItem } from '../components/bookings/BookingListItem.jsx';
 import { ErrorBanner } from '../components/ErrorBanner.jsx';
+import { Pagination } from '../components/Pagination.jsx';
 import { ApiError } from '../lib/ApiError.js';
 
 export function MyBookingsPage() {
   const [bookings, setBookings] = useState(null);
+  const [pagination, setPagination] = useState(null);
   const [error, setError] = useState(null);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (page = 1) => {
     try {
-      const result = await listMyBookings();
-      setBookings(result);
+      const result = await listMyBookings({ page });
+      setBookings(result.bookings);
+      setPagination(result.pagination);
     } catch {
       setError('Could not load your bookings.');
     }
@@ -26,7 +29,7 @@ export function MyBookingsPage() {
     setError(null);
     try {
       await cancelBooking(bookingId);
-      await reload();
+      await reload(pagination?.page);
     } catch (err) {
       setError(err instanceof ApiError && err.code === 'BOOKING_ALREADY_STARTED'
         ? 'That booking has already started and can no longer be cancelled.'
@@ -38,7 +41,7 @@ export function MyBookingsPage() {
     setError(null);
     try {
       await cancelSeriesOccurrence(bookingId);
-      await reload();
+      await reload(pagination?.page);
     } catch {
       setError('Could not cancel that occurrence.');
     }
@@ -48,7 +51,7 @@ export function MyBookingsPage() {
     setError(null);
     try {
       await shortenBooking(bookingId, newEndTime);
-      await reload();
+      await reload(pagination?.page);
     } catch (err) {
       setError(err instanceof ApiError && err.code === 'BOOKING_ALREADY_STARTED'
         ? 'That booking has already started and can no longer be shortened.'
@@ -111,6 +114,8 @@ export function MyBookingsPage() {
       ))}
 
       {bookings.length === 0 && <p>You have no bookings yet.</p>}
+
+      <Pagination pagination={pagination} onPageChange={reload} />
     </div>
   );
 }

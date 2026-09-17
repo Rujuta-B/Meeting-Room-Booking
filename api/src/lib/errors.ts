@@ -82,6 +82,16 @@ export function bookingAlreadyStartedError(): ConflictError {
   );
 }
 
+// Backed by the rooms(name, floor) unique constraint (see rooms.service.ts,
+// which catches Prisma's P2002 and throws this) - distinct rooms may share
+// a name across different floors, but not both at once.
+export function roomDuplicateError(): ConflictError {
+  return new ConflictError(
+    'ROOM_DUPLICATE',
+    'A room with this name already exists on this floor.',
+  );
+}
+
 // A 400, not a 409: "the new end time isn't actually earlier than the
 // current one" is a malformed request for the /shorten endpoint
 // specifically (the same CLASS of problem as end-before-start on booking

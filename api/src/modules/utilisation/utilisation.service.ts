@@ -99,3 +99,37 @@ export async function getUtilisationReport(params: UtilisationReportParams): Pro
 
   return { report, total };
 }
+
+export interface RoomDayBookingSlot {
+  bookingId: string;
+  startTime: Date;
+  endTime: Date;
+  userEmail: string;
+}
+
+// WHY this is a plain Prisma query, not raw SQL like the report above:
+// "bookings overlapping one calendar day for one room" needs no
+// computed-expression GROUP BY - the query builder expresses it directly
+// and type-safely, so raw SQL would only add risk with no benefit here.
+export async function getRoomDayTimeline(roomId: string, date: Date): Promise<RoomDayBookingSlot[]> {
+  const dayStart = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+  const bookings = await prisma.booking.findMany({
+    where: {
+      roomId,
+      status: 'CONFIRMED',
+      startTime: { lt: dayEnd },
+      endTime: { gt: dayStart },
+    },
+    orderBy: { startTime: 'asc' },
+    select: { id: true, startTime: true, endTime: true, user: { select: { email: true } } },
+  });
+
+  return bookings.map((b) => ({
+    bookingId: b.id,
+    startTime: b.startTime,
+    endTime: b.endTime,
+    userEmail: b.user.email,
+  }));
+}

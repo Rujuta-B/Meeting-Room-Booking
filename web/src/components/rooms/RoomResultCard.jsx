@@ -1,5 +1,6 @@
 // src/components/rooms/RoomResultCard.jsx
 import { Link } from 'react-router-dom';
+import { formatFloorLabel } from '../../lib/floor.js';
 
 export function RoomResultCard({ room, startTime, endTime }) {
   // Pre-fill the booking form's room + time via the URL's query string, so
@@ -11,7 +12,7 @@ export function RoomResultCard({ room, startTime, endTime }) {
   return (
     <div className="room-card">
       <h3>{room.name}</h3>
-      <p>{room.location}</p>
+      <p>{formatFloorLabel(room.floor)}</p>
       <p>Capacity: {room.capacity}</p>
       {room.attributes?.length > 0 && (
         <div className="attribute-tags">

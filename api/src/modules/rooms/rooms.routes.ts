@@ -11,6 +11,7 @@ import {
   updateRoomHandler,
   searchAvailabilityHandler,
   listAttributesHandler,
+  listRoomBookingsHandler,
 } from './rooms.controller.js';
 
 export const roomRoutes = Router();
@@ -25,6 +26,10 @@ roomRoutes.get('/search', authenticate, validate(SearchAvailabilitySchema, 'quer
 // checkbox filter list on the frontend - not paginated, this is a small
 // lookup table by design (see Attribute model comment in schema.prisma).
 roomRoutes.get('/attributes', authenticate, asyncHandler(listAttributesHandler));
+// Who has this room booked - a drill-down for the admin room table, but
+// readable by any authenticated user for the same reason as the two
+// routes above (not an administrative action).
+roomRoutes.get('/:id/bookings', authenticate, asyncHandler(listRoomBookingsHandler));
 
 // Room management (create/update) IS admin-only - authenticate first (who
 // are you), then requireAdmin (are you allowed to do this) - see

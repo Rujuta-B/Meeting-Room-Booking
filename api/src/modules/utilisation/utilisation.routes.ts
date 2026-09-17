@@ -6,7 +6,7 @@ import { authenticate } from '../../middleware/authenticate.js';
 import { requireAdmin } from '../../middleware/requireAdmin.js';
 import { validate } from '../../middleware/validate.js';
 import { PaginationSchema } from '../rooms/rooms.schemas.js';
-import { getUtilisationHandler } from './utilisation.controller.js';
+import { getUtilisationHandler, getRoomDayTimelineHandler } from './utilisation.controller.js';
 
 export const UtilisationQuerySchema = z
   .object({
@@ -23,6 +23,12 @@ export const UtilisationQuerySchema = z
   });
 export type UtilisationQueryInput = z.infer<typeof UtilisationQuerySchema>;
 
+export const RoomDayTimelineQuerySchema = z.object({
+  roomId: z.string().uuid(),
+  date: z.coerce.date(),
+});
+export type RoomDayTimelineQueryInput = z.infer<typeof RoomDayTimelineQuerySchema>;
+
 // authenticate BEFORE requireAdmin: we must know who the caller is before
 // we can check their role - see requireAdmin.ts.
 export const utilisationRoutes = Router();
@@ -32,4 +38,11 @@ utilisationRoutes.get(
   requireAdmin,
   validate(UtilisationQuerySchema, 'query'),
   asyncHandler(getUtilisationHandler),
+);
+utilisationRoutes.get(
+  '/day-timeline',
+  authenticate,
+  requireAdmin,
+  validate(RoomDayTimelineQuerySchema, 'query'),
+  asyncHandler(getRoomDayTimelineHandler),
 );
