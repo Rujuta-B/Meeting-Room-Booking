@@ -65,15 +65,23 @@ export function signAccessToken(payload: AccessTokenPayload): string {
   // the one it was meant to replace. verifyAccessToken below re-validates
   // against AccessTokenPayloadSchema (no jti field), so this extra field
   // is simply dropped on the way back out - callers never see it.
+  // jsonwebtoken's SignOptions['expiresIn'] union resolves to an error-like
+  // type after this cast; the cast itself is the documented, deliberate
+  // workaround above, not a real unsafe value.
+  /* eslint-disable @typescript-eslint/no-unsafe-assignment */
   return jwt.sign({ ...payload, jti: randomUUID() }, env.JWT_ACCESS_SECRET, {
     expiresIn: env.JWT_ACCESS_EXPIRES_IN as SignOptions['expiresIn'],
   });
+  /* eslint-enable @typescript-eslint/no-unsafe-assignment */
 }
 
 export function signRefreshToken(payload: RefreshTokenPayload): string {
+  // See signAccessToken above.
+  /* eslint-disable @typescript-eslint/no-unsafe-assignment */
   return jwt.sign(payload, env.JWT_REFRESH_SECRET, {
     expiresIn: env.JWT_REFRESH_EXPIRES_IN as SignOptions['expiresIn'],
   });
+  /* eslint-enable @typescript-eslint/no-unsafe-assignment */
 }
 
 // WHY the decoded payload is re-validated with zod, not just cast with

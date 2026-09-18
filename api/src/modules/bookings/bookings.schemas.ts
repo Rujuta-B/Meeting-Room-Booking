@@ -1,6 +1,13 @@
 // src/modules/bookings/bookings.schemas.ts
 import { z } from 'zod';
 import { PaginationSchema } from '../rooms/rooms.schemas.js';
+import { MIN_BOOKING_DURATION_MS } from '../../lib/bookingConstants.js';
+
+// Re-exported for existing importers (bookings.service.ts, errors.ts) -
+// the canonical definition now lives in lib/bookingConstants.ts so
+// rooms.schemas.ts can also use it without a rooms <-> bookings circular
+// import (see that file's comment).
+export { MIN_BOOKING_DURATION_MS };
 
 // Reused for both a one-off booking and (indirectly) each occurrence of a
 // series. `roomId` is checked for FORMAT here (a valid UUID) - whether it
@@ -18,6 +25,10 @@ export const CreateBookingSchema = z
   })
   .refine((data) => data.endTime > data.startTime, {
     message: 'endTime must be after startTime.',
+    path: ['endTime'],
+  })
+  .refine((data) => data.endTime.getTime() - data.startTime.getTime() >= MIN_BOOKING_DURATION_MS, {
+    message: 'A booking must be at least 10 minutes long.',
     path: ['endTime'],
   })
   .refine((data) => data.startTime > new Date(), {
@@ -73,6 +84,10 @@ export const CreateSeriesSchema = z
   .discriminatedUnion('pattern', [DailySeriesSchema, WeeklySeriesSchema, MonthlySeriesSchema])
   .refine((data) => data.endTime > data.startTime, {
     message: 'endTime must be after startTime.',
+    path: ['endTime'],
+  })
+  .refine((data) => data.endTime.getTime() - data.startTime.getTime() >= MIN_BOOKING_DURATION_MS, {
+    message: 'Each occurrence must be at least 10 minutes long.',
     path: ['endTime'],
   })
   .refine((data) => data.startTime > new Date(), {

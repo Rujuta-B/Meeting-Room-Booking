@@ -62,6 +62,7 @@ export async function createTestRoom(overrides: { capacity?: number; name?: stri
 // suite runs, at 10:00 UTC" - so the whole suite stays valid indefinitely.
 export function daysFromNow(days: number, hhmm: string): string {
   const [hours, minutes] = hhmm.split(':').map(Number);
+  if (hours === undefined || minutes === undefined) throw new Error(`invalid HH:MM: ${hhmm}`);
   const date = new Date();
   date.setUTCDate(date.getUTCDate() + days);
   date.setUTCHours(hours, minutes, 0, 0);

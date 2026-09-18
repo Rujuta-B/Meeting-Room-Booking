@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createTestApp } from './helpers/testApp.js';
 import { createTestUser, createTestRoom, resetDatabase, daysFromNow } from './helpers/factories.js';
+import { createBooking } from '../src/modules/bookings/bookings.service.js';
 
 const app = createTestApp();
 
@@ -158,6 +159,62 @@ describe('utilisation report', () => {
 
     expect(res.body.report).toHaveLength(2);
     expect(res.body.pagination).toEqual({ page: 1, pageSize: 2, total: 3, totalPages: 2 });
+  });
+
+  it('a booking created via the raw-SQL INSERT round-trips to the exact intended UTC instant', async () => {
+    // Regression test for the ::timestamptz-vs-::timestamp cast bug: since
+    // start_time/end_time are plain `timestamp` columns, createBooking()'s
+    // raw INSERT must cast to ::timestamp, not ::timestamptz - the latter
+    // would silently shift the stored value by the Postgres session's
+    // timezone offset. This exercises that exact INSERT (not the typed
+    // prisma.booking.create() other tests use) and confirms the value that
+    // comes back out via the utilisation report is bit-for-bit the instant
+    // that was requested.
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    const startTime = new Date(daysFromNow(10, '10:00'));
+    const endTime = new Date(daysFromNow(10, '12:15'));
+    await createBooking(user.id, { roomId: room.id, startTime, endTime });
+
+    const res = await request(app)
+      .get('/utilisation')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ rangeStart: REPORT_RANGE_START, rangeEnd: REPORT_RANGE_END });
+
+    const row = res.body.report.find((r: { roomId: string }) => r.roomId === room.id);
+    expect(row).toBeDefined();
+    expect(row.hoursBooked).toBe(2.25);
+  });
+
+  it('groups a booking by its IST week, not its UTC week', async () => {
+    // 2026-06-01 is a Monday. 2026-06-01T19:00:00.000Z is 2026-06-02T00:30
+    // IST - already Tuesday in IST, but still Monday night in UTC. The IST
+    // week containing that IST-Tuesday starts IST midnight on IST-Monday
+    // 2026-06-01, i.e. 2026-05-31T18:30:00.000Z. The UTC week containing
+    // this same instant instead starts UTC midnight on UTC-Monday
+    // 2026-06-01, i.e. 2026-06-01T00:00:00.000Z - a DIFFERENT instant. If
+    // week grouping used raw UTC calendar weeks instead of the documented
+    // IST shift, this booking would be reported under that UTC week start
+    // rather than the correct IST one - asserting the exact ISO value pins
+    // down which one actually happened.
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    const startTime = new Date('2026-06-01T19:00:00.000Z');
+    const endTime = new Date('2026-06-01T20:00:00.000Z');
+    await createBooking(user.id, { roomId: room.id, startTime, endTime });
+
+    const res = await request(app)
+      .get('/utilisation')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ rangeStart: '2026-05-01T00:00:00.000Z', rangeEnd: '2026-07-01T00:00:00.000Z' });
+
+    const row = res.body.report.find((r: { roomId: string }) => r.roomId === room.id);
+    expect(row).toBeDefined();
+    expect(row.weekStart).toBe('2026-05-31T18:30:00.000Z');
   });
 });
 

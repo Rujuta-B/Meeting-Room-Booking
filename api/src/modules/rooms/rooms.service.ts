@@ -21,7 +21,7 @@ export async function listRooms(input: ListRoomsQueryInput): Promise<ListRoomsRe
 
   const [rooms, total] = await Promise.all([
     prisma.room.findMany({
-      where,
+      ...(where ? { where } : {}),
       include: {
         attributes: { include: { attribute: true } },
         // Confirmed-booking count per room, for the admin table's
@@ -33,7 +33,7 @@ export async function listRooms(input: ListRoomsQueryInput): Promise<ListRoomsRe
       skip: (input.page - 1) * input.pageSize,
       take: input.pageSize,
     }),
-    prisma.room.count({ where }),
+    where ? prisma.room.count({ where }) : prisma.room.count(),
   ]);
 
   return { rooms, total };
@@ -233,9 +233,10 @@ export async function searchAvailableRooms(input: SearchAvailabilityInput): Prom
     OFFSET ${offset};
   `;
 
-  if (rooms.length === 0) return { rooms: [], total: 0 };
+  const [firstRoom] = rooms;
+  if (firstRoom === undefined) return { rooms: [], total: 0 };
 
-  const total = Number(rooms[0].total_count);
+  const total = Number(firstRoom.total_count);
 
   // A second, tiny query keyed by the room ids the first query already
   // narrowed down to - not a per-room query in a loop, and not fetching

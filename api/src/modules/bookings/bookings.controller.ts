@@ -2,13 +2,17 @@
 import type { Request, Response } from 'express';
 import * as bookingsService from './bookings.service.js';
 import { buildPaginationMeta } from '../rooms/rooms.schemas.js';
+import { requireUserId } from '../../middleware/authenticate.js';
 import type { CreateBookingInput, ShortenBookingInput, CreateSeriesInput, ListMyBookingsQueryInput } from './bookings.schemas.js';
 
 export async function createBookingHandler(req: Request<unknown, unknown, CreateBookingInput>, res: Response): Promise<void> {
-  // req.user is guaranteed to exist here because `authenticate` runs
+  // requireUserId is guaranteed to succeed here because `authenticate` runs
   // before this handler on every bookings route - see bookings.routes.ts.
-  const booking = await bookingsService.createBooking(req.user!.id, req.body);
-  req.log.info({ bookingId: booking.id, roomId: booking.roomId, userId: booking.userId }, 'Booking created');
+  const booking = await bookingsService.createBooking(requireUserId(req), req.body);
+  req.log.info(
+    { bookingId: booking.id, roomId: booking.roomId, userId: booking.userId, outcome: 'success' },
+    'Booking created',
+  );
   res.status(201).json({ booking });
 }
 
@@ -18,33 +22,40 @@ export async function createBookingHandler(req: Request<unknown, unknown, Create
 // handler runs.
 export async function listMyBookingsHandler(req: Request, res: Response): Promise<void> {
   const query = req.query as unknown as ListMyBookingsQueryInput;
-  const { bookings, total } = await bookingsService.listMyBookings(req.user!.id, query);
+  const { bookings, total } = await bookingsService.listMyBookings(requireUserId(req), query);
   res.json({ bookings, pagination: buildPaginationMeta(query, total) });
 }
 
 export async function cancelBookingHandler(req: Request<{ id: string }>, res: Response): Promise<void> {
-  await bookingsService.cancelBooking(req.params.id, req.user!.id);
-  req.log.info({ bookingId: req.params.id, userId: req.user!.id }, 'Booking cancelled');
+  const userId = requireUserId(req);
+  await bookingsService.cancelBooking(req.params.id, userId);
+  req.log.info({ bookingId: req.params.id, userId, outcome: 'success' }, 'Booking cancelled');
   res.status(204).send();
 }
 
 export async function shortenBookingHandler(req: Request<{ id: string }, unknown, ShortenBookingInput>, res: Response): Promise<void> {
-  const booking = await bookingsService.shortenBooking(req.params.id, req.user!.id, req.body);
-  req.log.info({ bookingId: booking.id, userId: req.user!.id, newEndTime: booking.endTime }, 'Booking shortened');
+  const userId = requireUserId(req);
+  const booking = await bookingsService.shortenBooking(req.params.id, userId, req.body);
+  req.log.info(
+    { bookingId: booking.id, userId, newEndTime: booking.endTime, outcome: 'success' },
+    'Booking shortened',
+  );
   res.json({ booking });
 }
 
 export async function createSeriesHandler(req: Request<unknown, unknown, CreateSeriesInput>, res: Response): Promise<void> {
-  const result = await bookingsService.createSeries(req.user!.id, req.body);
+  const userId = requireUserId(req);
+  const result = await bookingsService.createSeries(userId, req.body);
   req.log.info(
-    { seriesId: result.series.id, occurrenceCount: result.occurrences.length, userId: req.user!.id },
+    { seriesId: result.series.id, occurrenceCount: result.occurrences.length, userId, outcome: 'success' },
     'Recurring booking series created',
   );
   res.status(201).json(result);
 }
 
 export async function cancelOccurrenceHandler(req: Request<{ id: string }>, res: Response): Promise<void> {
-  await bookingsService.cancelSeriesOccurrence(req.params.id, req.user!.id);
-  req.log.info({ bookingId: req.params.id, userId: req.user!.id }, 'Series occurrence cancelled');
+  const userId = requireUserId(req);
+  await bookingsService.cancelSeriesOccurrence(req.params.id, userId);
+  req.log.info({ bookingId: req.params.id, userId, outcome: 'success' }, 'Series occurrence cancelled');
   res.status(204).send();
 }

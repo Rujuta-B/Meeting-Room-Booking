@@ -50,6 +50,14 @@ const envSchema = z.object({
   // test runs; omitting it from this enum would make the documented test
   // config fail startup validation.
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+
+  // Both optional and unset by default: this app runs identically with
+  // neither present (local Docker Compose dev, or any deployment that
+  // doesn't use Azure). Only Azure Container Apps deployments set these -
+  // see config/secrets.ts and lib/telemetry.ts, which both check for the
+  // corresponding value before doing anything Azure-specific.
+  AZURE_KEY_VAULT_URL: z.string().url().optional(),
+  APPLICATIONINSIGHTS_CONNECTION_STRING: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

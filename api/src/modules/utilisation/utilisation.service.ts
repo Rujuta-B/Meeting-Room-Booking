@@ -15,7 +15,13 @@ interface UtilisationRow {
   room_id: string;
   room_name: string;
   week_start: Date;
-  hours_booked: number;
+  // Postgres's numeric/decimal type (what SUM(...) over a computed EPOCH
+  // expression produces) comes back from $queryRaw as a STRING, not a
+  // number - node-postgres does this deliberately to avoid silent
+  // precision loss for values too large/precise for a JS number. The
+  // Number(...) conversion below is real, necessary work, not a redundant
+  // one the static type alone would suggest.
+  hours_booked: string;
   total_count: bigint;
 }
 
@@ -63,28 +69,46 @@ export async function getUtilisationReport(params: UtilisationReportParams): Pro
   // query: one query returns both the page of rows and the full matching
   // row count needed for pagination metadata, instead of a second
   // round-trip COUNT(*) re-running the same GROUP BY.
+  //
+  // Casts below are ::timestamp, NOT ::timestamptz - start_time is a plain
+  // `timestamp` column (see bookings.service.ts's createBooking comment and
+  // the exclusion-constraint migration's SQLSTATE 42P17 note); a
+  // ::timestamptz cast here would force an implicit, session-timezone-
+  // dependent conversion on every row instead of a straightforward value
+  // comparison.
+  //
+  // date_trunc('week', ...) is shifted by the fixed +05:30 IST offset (and
+  // shifted back) so week boundaries land on IST weeks, matching what an
+  // IST-thinking admin expects - the naive `b.start_time + interval` here
+  // is the same India-only, no-DST shortcut documented in
+  // web/src/lib/istTime.ts, mirrored in raw SQL because this aggregate
+  // can't be expressed through Prisma's query builder (see file header).
+  // Without the shift, this groups by UTC calendar week, which can put a
+  // booking an admin considers "Monday morning IST" into the previous
+  // UTC week.
   const rows = await prisma.$queryRaw<UtilisationRow[]>`
     SELECT
       r.id AS room_id,
       r.name AS room_name,
-      date_trunc('week', b.start_time) AS week_start,
+      date_trunc('week', b.start_time + interval '5 hours 30 minutes') - interval '5 hours 30 minutes' AS week_start,
       SUM(EXTRACT(EPOCH FROM (b.end_time - b.start_time)) / 3600.0) AS hours_booked,
       COUNT(*) OVER() AS total_count
     FROM bookings b
     JOIN rooms r ON r.id = b.room_id
     WHERE b.status = 'CONFIRMED'
-      AND b.start_time >= ${rangeStart}::timestamptz
-      AND b.start_time < ${rangeEnd}::timestamptz
+      AND b.start_time >= ${rangeStart}::timestamp
+      AND b.start_time < ${rangeEnd}::timestamp
       AND (${roomId}::text IS NULL OR r.id = ${roomId}::text)
-    GROUP BY r.id, r.name, date_trunc('week', b.start_time)
+    GROUP BY r.id, r.name, date_trunc('week', b.start_time + interval '5 hours 30 minutes') - interval '5 hours 30 minutes'
     ORDER BY r.name, week_start
     LIMIT ${pageSize}
     OFFSET ${offset};
   `;
 
-  if (rows.length === 0) return { report: [], total: 0 };
+  const [firstRow] = rows;
+  if (firstRow === undefined) return { report: [], total: 0 };
 
-  const total = Number(rows[0].total_count);
+  const total = Number(firstRow.total_count);
   const report = rows.map((row) => {
     const hoursBooked = Number(row.hours_booked);
     return {

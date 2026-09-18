@@ -319,6 +319,44 @@ describe('room capacity bounds', () => {
   });
 });
 
+describe('room management authorization', () => {
+  it('rejects POST /rooms from a non-admin user with 403', async () => {
+    const user = await createTestUser({ role: 'USER' });
+
+    const res = await request(app)
+      .post('/rooms')
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ name: 'Sneaky Room', floor: 2, capacity: 10 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('FORBIDDEN');
+  });
+
+  it('rejects PATCH /rooms/:id from a non-admin user with 403', async () => {
+    const user = await createTestUser({ role: 'USER' });
+    const room = await createTestRoom();
+
+    const res = await request(app)
+      .patch(`/rooms/${room.id}`)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ name: 'Renamed' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('FORBIDDEN');
+  });
+
+  it('rejects POST /rooms with no auth at all with 401', async () => {
+    const res = await request(app).post('/rooms').send({ name: 'Anon Room', floor: 2, capacity: 10 });
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects PATCH /rooms/:id with no auth at all with 401', async () => {
+    const room = await createTestRoom();
+    const res = await request(app).patch(`/rooms/${room.id}`).send({ name: 'Anon Rename' });
+    expect(res.status).toBe(401);
+  });
+});
+
 describe('room name+floor uniqueness', () => {
   it('rejects creating a room with the same name and floor as an existing one', async () => {
     const admin = await createTestUser({ role: 'ADMIN' });

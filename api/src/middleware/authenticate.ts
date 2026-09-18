@@ -12,6 +12,20 @@ import type { NextFunction, Request, Response } from 'express';
 import { UnauthorizedError } from '../lib/errors.js';
 import { verifyAccessToken } from '../lib/jwt.js';
 
+// A single, audited non-null assertion for "authenticate ran before this
+// handler" (true for every route that lists `authenticate` in its
+// middleware chain - see each module's *.routes.ts) instead of a bare
+// `req.user!.id` repeated at every call site. Typed against just the
+// `user` field (via Pick) rather than the full `Request` so it accepts
+// controllers' more specific `Request<Params, ResBody, ReqBody, ...>`
+// variants too, not only the bare, unparameterized `Request`.
+export function requireUserId(req: Pick<Request, 'user'>): string {
+  if (!req.user) {
+    throw new UnauthorizedError('Authentication required.');
+  }
+  return req.user.id;
+}
+
 export function authenticate(req: Request, _res: Response, next: NextFunction): void {
   const header = req.headers.authorization;
 

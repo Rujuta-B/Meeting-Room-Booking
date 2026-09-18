@@ -74,6 +74,28 @@ describe('auth: register/login/refresh/logout', () => {
     expect(secondRefresh.status).toBe(200);
   });
 
+  it('rejects reuse of a refresh token that has already been rotated', async () => {
+    // Same technique as the "logout revokes server-side" test below:
+    // capture the raw Set-Cookie value before refreshing so we can replay
+    // the PRE-rotation cookie on a fresh, cookie-less request afterward. A
+    // shared agent can't prove this - it auto-replaces its cookie with the
+    // newly-rotated one, so it would never even attempt to resend the old
+    // value.
+    const registerRes = await request(app).post('/auth/register').send({ email: 'rotate@example.com', password: 'password123' });
+    const originalSetCookieHeader = registerRes.headers['set-cookie']?.[0];
+    if (originalSetCookieHeader === undefined) throw new Error('expected a Set-Cookie header on register response');
+    const originalCookiePair = originalSetCookieHeader.split(';')[0];
+    if (originalCookiePair === undefined) throw new Error('expected a non-empty Set-Cookie header');
+
+    // Rotate it once, using the original cookie explicitly (not an agent).
+    const refreshRes = await request(app).post('/auth/refresh').set('Cookie', originalCookiePair).send();
+    expect(refreshRes.status).toBe(200);
+
+    // Replaying the OLD, now-revoked cookie value again must be rejected.
+    const replayRes = await request(app).post('/auth/refresh').set('Cookie', originalCookiePair).send();
+    expect(replayRes.status).toBe(401);
+  });
+
   it('rejects /auth/refresh with no cookie at all', async () => {
     const res = await request(app).post('/auth/refresh').send();
     expect(res.status).toBe(401);
@@ -95,8 +117,10 @@ describe('auth: register/login/refresh/logout', () => {
     // proves the token itself is dead server-side, independent of what
     // any particular client remembers.
     const registerRes = await request(app).post('/auth/register').send({ email: 'logout@example.com', password: 'password123' });
-    const setCookieHeader = registerRes.headers['set-cookie'][0];
+    const setCookieHeader = registerRes.headers['set-cookie']?.[0];
+    if (setCookieHeader === undefined) throw new Error('expected a Set-Cookie header on register response');
     const rawCookiePair = setCookieHeader.split(';')[0]; // "refreshToken=<value>"
+    if (rawCookiePair === undefined) throw new Error('expected a non-empty Set-Cookie header');
 
     const logoutRes = await request(app).post('/auth/logout').set('Cookie', rawCookiePair).send();
     expect(logoutRes.status).toBe(204);

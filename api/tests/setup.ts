@@ -15,6 +15,7 @@
 // example of why this matters.
 import { execSync } from 'node:child_process';
 
+// eslint-disable-next-line @typescript-eslint/require-await -- Vitest's globalSetup contract expects `() => void | Promise<void>`; this uses execSync (synchronous) on purpose, not a missed await.
 export async function setup(): Promise<void> {
   if (!process.env.DATABASE_URL) {
     throw new Error(

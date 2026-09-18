@@ -78,7 +78,19 @@ export function bookingConflictError(): ConflictError {
 export function bookingAlreadyStartedError(): ConflictError {
   return new ConflictError(
     'BOOKING_ALREADY_STARTED',
-    'This booking has already started and can no longer be shortened or cancelled.',
+    'This booking has already started and can no longer be cancelled.',
+  );
+}
+
+// Distinct from bookingAlreadyStartedError: cancel is blocked the instant a
+// booking starts, but shorten stays available until MIN_BOOKING_DURATION_MS
+// remains before the booking's CURRENT end (see assertShortenableNow in
+// bookings.service.ts) - shortening a meeting that's already running is
+// fine right up until there's no meaningful time left to shorten it TO.
+export function bookingTooCloseToEndError(): ConflictError {
+  return new ConflictError(
+    'BOOKING_TOO_CLOSE_TO_END',
+    'This booking can no longer be shortened - less than 10 minutes remain before it ends.',
   );
 }
 
@@ -100,8 +112,8 @@ export function roomDuplicateError(): ConflictError {
 // what this endpoint does. Kept as its own function (not reusing
 // bookingAlreadyStartedError, which is a 409 about TIMING, a different
 // concept from this being about the REQUESTED VALUE not shrinking anything).
-export function notAShortenError(): ValidationError {
-  return new ValidationError([
-    { field: 'endTime', message: 'The new end time must be earlier than the booking\'s current end time.' },
-  ]);
+export function notAShortenError(
+  message = 'The new end time must be earlier than the booking\'s current end time.',
+): ValidationError {
+  return new ValidationError([{ field: 'endTime', message }]);
 }

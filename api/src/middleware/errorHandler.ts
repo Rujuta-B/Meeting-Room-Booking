@@ -40,11 +40,11 @@ export function errorHandler(
     // conflict case specifically doubles as the "rejected double-booking
     // attempt" audit trail the spec asks for.
     req.log.warn(
-      { err: { code: err.code, message: err.message }, statusCode: err.statusCode },
+      { err: { code: err.code, message: err.message }, statusCode: err.statusCode, outcome: 'rejected' },
       'Request failed with a handled error',
     );
     res.status(err.statusCode).json({
-      error: { code: err.code, message: err.message, ...(err.details ? (err.details as object) : {}) },
+      error: { code: err.code, message: err.message, ...(err.details ? err.details : {}) },
     });
     return;
   }
@@ -78,7 +78,10 @@ export function errorHandler(
     (err.meta as { code?: string } | undefined)?.code === POSTGRES_EXCLUSION_VIOLATION
   ) {
     const conflict = bookingConflictError();
-    req.log.warn({ err: { code: conflict.code } }, 'Rejected a double-booking attempt (exclusion constraint)');
+    req.log.warn(
+      { err: { code: conflict.code }, outcome: 'rejected' },
+      'Rejected a double-booking attempt (exclusion constraint)',
+    );
     res.status(conflict.statusCode).json({ error: { code: conflict.code, message: conflict.message } });
     return;
   }
@@ -88,6 +91,9 @@ export function errorHandler(
   // but never send the raw error/stack trace to the client - that can leak
   // internal details (file paths, query text, library versions) to
   // whoever is calling the API.
-  req.log.error({ err }, 'Unhandled error');
+  req.log.error(
+    { err, outcome: 'error', requestId: req.id, userId: req.user?.id, path: req.path },
+    'Unhandled error',
+  );
   res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.' } });
 }
