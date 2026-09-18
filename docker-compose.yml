@@ -12,6 +12,14 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      # Pinned explicitly rather than relying on postgres:16-alpine's
+      # default session timezone: bookings.start_time/end_time are plain
+      # `timestamp` (no time zone) columns, treated as UTC by convention
+      # throughout the app (see bookings.service.ts) - that convention must
+      # hold unconditionally, not merely because the base image happens to
+      # default to UTC today.
+      TZ: UTC
+      PGTZ: UTC
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
@@ -32,6 +40,13 @@ services:
       db:
         condition: service_healthy
     env_file: ./api/.env
+    environment:
+      # Same reasoning as the db service's TZ above - Node's own Date
+      # handling doesn't depend on this for UTC instants/epoch math, but
+      # pinning it removes any doubt for anything that does consult the
+      # process timezone (e.g. log timestamps), and keeps both containers
+      # in the same explicit convention.
+      TZ: UTC
     ports:
       - '3000:3000'
 

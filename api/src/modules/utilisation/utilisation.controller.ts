@@ -8,7 +8,11 @@ export async function getUtilisationHandler(req: Request, res: Response): Promis
   // Query params already validated + coerced to Dates by validate() +
   // UtilisationQuerySchema (see utilisation.routes.ts) before this runs.
   const query = req.query as unknown as UtilisationQueryInput;
-  const { report, total } = await utilisationService.getUtilisationReport(query);
+  const { roomId, ...rest } = query;
+  const { report, total } = await utilisationService.getUtilisationReport({
+    ...rest,
+    ...(roomId !== undefined ? { roomId } : {}),
+  });
   res.json({ report, pagination: buildPaginationMeta(query, total) });
 }
 

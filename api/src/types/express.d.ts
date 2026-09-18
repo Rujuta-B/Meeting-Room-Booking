@@ -17,6 +17,7 @@ declare global {
         role: 'USER' | 'ADMIN';
       };
       id: string;
+      correlationId: string;
       log: Logger;
     }
   }

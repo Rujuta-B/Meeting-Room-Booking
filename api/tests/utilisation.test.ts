@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createTestApp } from './helpers/testApp.js';
 import { createTestUser, createTestRoom, resetDatabase, daysFromNow } from './helpers/factories.js';
+import { createBooking } from '../src/modules/bookings/bookings.service.js';
 
 const app = createTestApp();
 
@@ -158,6 +159,182 @@ describe('utilisation report', () => {
 
     expect(res.body.report).toHaveLength(2);
     expect(res.body.pagination).toEqual({ page: 1, pageSize: 2, total: 3, totalPages: 2 });
+  });
+
+  it('a booking created via the raw-SQL INSERT round-trips to the exact intended UTC instant', async () => {
+    // Regression test for the ::timestamptz-vs-::timestamp cast bug: since
+    // start_time/end_time are plain `timestamp` columns, createBooking()'s
+    // raw INSERT must cast to ::timestamp, not ::timestamptz - the latter
+    // would silently shift the stored value by the Postgres session's
+    // timezone offset. This exercises that exact INSERT (not the typed
+    // prisma.booking.create() other tests use) and confirms the value that
+    // comes back out via the utilisation report is bit-for-bit the instant
+    // that was requested.
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    const startTime = new Date(daysFromNow(10, '10:00'));
+    const endTime = new Date(daysFromNow(10, '12:15'));
+    await createBooking(user.id, { roomId: room.id, startTime, endTime });
+
+    const res = await request(app)
+      .get('/utilisation')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ rangeStart: REPORT_RANGE_START, rangeEnd: REPORT_RANGE_END });
+
+    const row = res.body.report.find((r: { roomId: string }) => r.roomId === room.id);
+    expect(row).toBeDefined();
+    expect(row.hoursBooked).toBe(2.25);
+  });
+
+  it('groups a booking by its IST week, not its UTC week', async () => {
+    // 2026-06-01 is a Monday. 2026-06-01T19:00:00.000Z is 2026-06-02T00:30
+    // IST - already Tuesday in IST, but still Monday night in UTC. The IST
+    // week containing that IST-Tuesday starts IST midnight on IST-Monday
+    // 2026-06-01, i.e. 2026-05-31T18:30:00.000Z. The UTC week containing
+    // this same instant instead starts UTC midnight on UTC-Monday
+    // 2026-06-01, i.e. 2026-06-01T00:00:00.000Z - a DIFFERENT instant. If
+    // week grouping used raw UTC calendar weeks instead of the documented
+    // IST shift, this booking would be reported under that UTC week start
+    // rather than the correct IST one - asserting the exact ISO value pins
+    // down which one actually happened.
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    const startTime = new Date('2026-06-01T19:00:00.000Z');
+    const endTime = new Date('2026-06-01T20:00:00.000Z');
+    await createBooking(user.id, { roomId: room.id, startTime, endTime });
+
+    const res = await request(app)
+      .get('/utilisation')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ rangeStart: '2026-05-01T00:00:00.000Z', rangeEnd: '2026-07-01T00:00:00.000Z' });
+
+    const row = res.body.report.find((r: { roomId: string }) => r.roomId === room.id);
+    expect(row).toBeDefined();
+    expect(row.weekStart).toBe('2026-05-31T18:30:00.000Z');
+  });
+
+  // The IST week starting IST-Monday 2026-06-01 00:00 runs from
+  // 2026-05-31T18:30:00.000Z (inclusive) to 2026-06-07T18:30:00.000Z
+  // (exclusive) - the same week the existing IST-grouping test above pins
+  // down. Reused here as a fixed, known-full week to test hoursAvailable
+  // against, rather than daysFromNow's "relative to whenever the suite
+  // runs" times, which can't be lined up to exact week/day boundaries.
+  const IST_WEEK_START = '2026-05-31T18:30:00.000Z';
+  const IST_WEEK_END = '2026-06-07T18:30:00.000Z';
+
+  it('hoursAvailable is a full 168 (24x7) for a range spanning exactly one full IST week', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    await createBooking(user.id, {
+      roomId: room.id,
+      startTime: new Date('2026-06-01T10:00:00.000Z'),
+      endTime: new Date('2026-06-01T12:00:00.000Z'),
+    });
+
+    const res = await request(app)
+      .get('/utilisation')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ rangeStart: IST_WEEK_START, rangeEnd: IST_WEEK_END });
+
+    const row = res.body.report.find((r: { roomId: string }) => r.roomId === room.id);
+    expect(row).toBeDefined();
+    expect(row.hoursAvailable).toBe(168);
+    expect(row.utilisationPct).toBe(1.2); // 2 / 168 hours, rounded to one decimal
+  });
+
+  it('hoursAvailable is 24 for a range spanning exactly one day', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    await createBooking(user.id, {
+      roomId: room.id,
+      startTime: new Date('2026-06-01T10:00:00.000Z'),
+      endTime: new Date('2026-06-01T12:00:00.000Z'),
+    });
+
+    // One IST calendar day: 2026-06-01T18:30:00.000Z (IST midnight of
+    // 2026-06-02) is excluded, matching the exclusive rangeEnd bound.
+    const res = await request(app)
+      .get('/utilisation')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ rangeStart: '2026-05-31T18:30:00.000Z', rangeEnd: '2026-06-01T18:30:00.000Z' });
+
+    const row = res.body.report.find((r: { roomId: string }) => r.roomId === room.id);
+    expect(row).toBeDefined();
+    expect(row.hoursAvailable).toBe(24);
+  });
+
+  it('clamps hoursAvailable to the requested range for a partial first/last week', async () => {
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    // A booking on IST-Wednesday 2026-06-03, inside the requested partial
+    // week below.
+    await createBooking(user.id, {
+      roomId: room.id,
+      startTime: new Date('2026-06-03T10:00:00.000Z'),
+      endTime: new Date('2026-06-03T11:00:00.000Z'),
+    });
+
+    // Range starts mid-week: IST-Wednesday 2026-06-03 00:00 IST
+    // (2026-06-02T18:30:00.000Z) through the IST week's natural end
+    // (2026-06-07T18:30:00.000Z, exclusive) - only Wed/Thu/Fri/Sat/Sun of
+    // that IST week are actually requested, i.e. 5 days = 120 hours, not
+    // the full week's 168.
+    const rangeStart = '2026-06-02T18:30:00.000Z';
+    const res = await request(app)
+      .get('/utilisation')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ rangeStart, rangeEnd: IST_WEEK_END });
+
+    const row = res.body.report.find((r: { roomId: string }) => r.roomId === room.id);
+    expect(row).toBeDefined();
+    expect(row.weekStart).toBe(IST_WEEK_START); // date_trunc still labels the row by the full week's Monday
+    expect(row.hoursAvailable).toBe(120); // only the 5 requested days of that week
+  });
+
+  it('a wide multi-month range gives every returned (booked) week its own full 168-hour availability', async () => {
+    // Mirrors a monthly recurring series spanning many months: each
+    // occurrence lands in a different, mostly-empty week, but any week
+    // that DOES have a booking should report a full week's availability
+    // (168) since the whole requested range is far wider than any single
+    // week and every returned week here is entirely inside it - not the
+    // old flat "40" that had nothing to do with the actual monthly
+    // cadence.
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const user = await createTestUser();
+    const room = await createTestRoom();
+
+    const occurrenceStarts = [
+      '2026-06-01T10:00:00.000Z',
+      '2026-07-01T10:00:00.000Z',
+      '2026-08-03T10:00:00.000Z', // 2026-08-01/02 fall on a weekend; nudged to the following Monday
+    ];
+    for (const start of occurrenceStarts) {
+      const startTime = new Date(start);
+      const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1 hour
+      await createBooking(user.id, { roomId: room.id, startTime, endTime });
+    }
+
+    const res = await request(app)
+      .get('/utilisation')
+      .set('Authorization', `Bearer ${admin.accessToken}`)
+      .query({ rangeStart: '2026-05-01T00:00:00.000Z', rangeEnd: '2026-12-01T00:00:00.000Z', pageSize: 100 });
+
+    const rows = res.body.report.filter((r: { roomId: string }) => r.roomId === room.id);
+    expect(rows).toHaveLength(3); // one row per distinct week that actually has a booking
+    for (const row of rows) {
+      expect(row.hoursAvailable).toBe(168);
+      expect(row.hoursBooked).toBe(1);
+    }
   });
 });
 

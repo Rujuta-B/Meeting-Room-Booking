@@ -8,9 +8,11 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.test.json",
+    "lint": "eslint .",
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
@@ -20,7 +22,10 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@azure/identity": "^4.4.1",
+    "@azure/keyvault-secrets": "^4.9.0",
     "@prisma/client": "^5.20.0",
+    "applicationinsights": "^3.16.0",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
@@ -40,11 +45,14 @@
     "@types/ms": "^0.7.34",
     "@types/node": "^22.7.4",
     "@types/supertest": "^6.0.2",
+    "@vitest/coverage-v8": "^2.1.1",
     "dotenv": "^16.4.5",
+    "eslint": "^10.10.0",
     "prisma": "^5.20.0",
     "supertest": "^7.0.0",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^2.1.1"
   }
 }

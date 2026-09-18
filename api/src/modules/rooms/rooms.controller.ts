@@ -25,13 +25,13 @@ export async function listRoomBookingsHandler(req: Request<{ id: string }>, res:
 
 export async function createRoomHandler(req: Request<unknown, unknown, CreateRoomInput>, res: Response): Promise<void> {
   const room = await roomsService.createRoom(req.body);
-  req.log.info({ roomId: room.id }, 'Room created');
+  req.log.info({ roomId: room.id, outcome: 'success' }, 'Room created');
   res.status(201).json({ room });
 }
 
 export async function updateRoomHandler(req: Request<{ id: string }, unknown, UpdateRoomInput>, res: Response): Promise<void> {
   const room = await roomsService.updateRoom(req.params.id, req.body);
-  req.log.info({ roomId: room.id }, 'Room updated');
+  req.log.info({ roomId: room.id, outcome: 'success' }, 'Room updated');
   res.json({ room });
 }
 

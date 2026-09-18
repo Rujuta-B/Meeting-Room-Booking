@@ -382,8 +382,8 @@ button:disabled {
   border-radius: var(--radius-lg);
   padding: 24px;
   box-shadow: var(--shadow-sm);
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 18px;
   align-items: end;
 }
@@ -399,9 +399,10 @@ button:disabled {
 }
 
 .room-filter-bar button {
-  align-self: flex-end;
+  align-self: end;
   padding: 10px 22px;
   font-weight: 600;
+  justify-self: start;
 }
 
 .room-card {
@@ -693,11 +694,12 @@ table.utilisation-table {
 }
 
 .room-form-attributes,
-.room-filter-attributes {
+.room-filter-bar .room-filter-attributes {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   padding: 10px 14px 12px;
-  margin: 0 0 14px;
+  margin: 0;
+  grid-column: 1 / -1;
 }
 
 .room-form-attributes legend,
@@ -710,15 +712,18 @@ table.utilisation-table {
   color: var(--muted);
 }
 
+.room-form-attributes,
 .room-filter-attributes {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   align-items: center;
-  gap: 4px 18px;
+  gap: 10px 18px;
 }
 
+.room-form-attributes legend,
 .room-filter-attributes legend {
   width: 100%;
+  grid-column: 1 / -1;
 }
 
 .checkbox-label {
@@ -1408,8 +1413,40 @@ table.room-day-bookings-table {
   font-weight: 500;
 }
 
-.date-picker-popover .rdp-nav_button {
+.date-picker-popover .rdp-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.date-picker-popover .rdp-button_previous,
+.date-picker-popover .rdp-button_next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 4px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
   color: var(--ink);
+  transition: all 0.2s ease;
+}
+
+.date-picker-popover .rdp-button_previous:hover,
+.date-picker-popover .rdp-button_next:hover {
+  background: var(--surface);
+  border-color: var(--ink);
+}
+
+.date-picker-popover .rdp-chevron {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  fill: var(--ink);
 }
 
 .date-picker-popover .rdp-month_caption {

@@ -1,5 +1,6 @@
 // src/modules/rooms/rooms.schemas.ts
 import { z } from 'zod';
+import { MIN_BOOKING_DURATION_MS } from '../../lib/bookingConstants.js';
 
 // Shared by every paginated list endpoint (rooms list, rooms search,
 // utilisation report). pageSize is capped at 100 - without a cap, a
@@ -82,6 +83,10 @@ export const SearchAvailabilitySchema = z
   .merge(PaginationSchema)
   .refine((data) => data.endTime > data.startTime, {
     message: 'endTime must be after startTime.',
+    path: ['endTime'],
+  })
+  .refine((data) => data.endTime.getTime() - data.startTime.getTime() >= MIN_BOOKING_DURATION_MS, {
+    message: 'Search range must be at least 10 minutes long.',
     path: ['endTime'],
   })
   .refine((data) => data.startTime > new Date(), {

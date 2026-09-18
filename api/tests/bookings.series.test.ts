@@ -164,6 +164,7 @@ describe('recurring booking series', () => {
 
     const occurrences = created.body.occurrences as Array<{ id: string }>;
     const targetOccurrence = occurrences[1]; // cancel the middle one specifically
+    if (targetOccurrence === undefined) throw new Error('expected a 3-occurrence series to have a middle occurrence');
 
     const cancelRes = await request(app)
       .delete(`/bookings/${targetOccurrence.id}/occurrence`)

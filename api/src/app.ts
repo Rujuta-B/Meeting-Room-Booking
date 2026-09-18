@@ -12,6 +12,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
 import { requestId } from './middleware/requestId.js';
+import { accessLog } from './middleware/accessLog.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { roomRoutes } from './modules/rooms/rooms.routes.js';
@@ -24,6 +25,11 @@ export function buildApp(): Express {
   // Assigns req.id/req.log FIRST, before anything else, so every
   // subsequent middleware and route handler can log with request context.
   app.use(requestId);
+  // Registered right after requestId so every request - including ones
+  // that fail validation or auth before reaching a route handler - gets
+  // exactly one access-log line with the requestId/correlationId already
+  // attached via req.log.
+  app.use(accessLog);
 
   app.use(
     cors({

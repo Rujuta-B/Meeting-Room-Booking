@@ -7,7 +7,7 @@
 // reusable if we ever added a second entry point (a CLI, a second API
 // version, etc).
 import type { Request, Response } from 'express';
-import { env, isProduction } from '../../config/env.js';
+import { isProduction } from '../../config/env.js';
 import * as authService from './auth.service.js';
 import type { RegisterInput, LoginInput } from './auth.schemas.js';
 
@@ -40,6 +40,16 @@ function setRefreshCookie(res: Response, token: string, expiresAt: Date): void {
   res.cookie(REFRESH_COOKIE_NAME, token, { ...REFRESH_COOKIE_OPTIONS, expires: expiresAt });
 }
 
+// Express's own types leave req.cookies as `any` (cookie-parser is a
+// separate package Express itself knows nothing about) - this is the one
+// audited cast for the real runtime shape cookie-parser produces for
+// unsigned string cookies, so every call site gets a checked
+// `string | undefined` instead of repeating the same unsafe access.
+function readCookie(req: Request, name: string): string | undefined {
+  const cookies = req.cookies as Record<string, string | undefined>;
+  return cookies[name];
+}
+
 // WHY the JSON body only ever contains { user, accessToken } - never the
 // refresh token: that's the entire point of splitting the two token types
 // across two transport mechanisms. If the refresh token appeared in the
@@ -54,13 +64,13 @@ function sendAuthResult(res: Response, status: number, result: Awaited<ReturnTyp
 
 export async function registerHandler(req: Request<unknown, unknown, RegisterInput>, res: Response): Promise<void> {
   const result = await authService.register(req.body);
-  req.log.info({ userId: result.user.id }, 'User registered');
+  req.log.info({ userId: result.user.id, outcome: 'success' }, 'User registered');
   sendAuthResult(res, 201, result);
 }
 
 export async function loginHandler(req: Request<unknown, unknown, LoginInput>, res: Response): Promise<void> {
   const result = await authService.login(req.body);
-  req.log.info({ userId: result.user.id }, 'User logged in');
+  req.log.info({ userId: result.user.id, outcome: 'success' }, 'User logged in');
   sendAuthResult(res, 200, result);
 }
 
@@ -69,25 +79,25 @@ export async function refreshHandler(req: Request, res: Response): Promise<void>
   // from the body or a header here. That's what makes the frontend's
   // `fetch('/auth/refresh', { credentials: 'include' })` work without the
   // frontend ever having direct access to the token value itself.
-  const rawRefreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+  const rawRefreshToken = readCookie(req, REFRESH_COOKIE_NAME);
   if (!rawRefreshToken) {
     res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'No refresh token provided.' } });
     return;
   }
 
   const result = await authService.refresh(rawRefreshToken);
-  req.log.info({ userId: result.user.id }, 'Access token refreshed');
+  req.log.info({ userId: result.user.id, outcome: 'success' }, 'Access token refreshed');
   sendAuthResult(res, 200, result);
 }
 
 export async function logoutHandler(req: Request, res: Response): Promise<void> {
-  const rawRefreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+  const rawRefreshToken = readCookie(req, REFRESH_COOKIE_NAME);
   await authService.logout(rawRefreshToken);
   // clearCookie's options must match the ones used in res.cookie(), MINUS
   // `expires`/`maxAge` (clearCookie sets its own expiry in the past to
   // delete it) - mismatched `path`/`sameSite`/`secure` here is the classic
   // reason "logout" appears to succeed but the cookie silently survives.
   res.clearCookie(REFRESH_COOKIE_NAME, REFRESH_COOKIE_OPTIONS);
-  req.log.info('User logged out');
+  req.log.info({ outcome: 'success' }, 'User logged out');
   res.status(204).send();
 }
