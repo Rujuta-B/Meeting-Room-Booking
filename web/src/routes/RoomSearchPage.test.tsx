@@ -81,4 +81,23 @@ describe('RoomSearchPage', () => {
       'Search range must be at least 10 minutes long.',
     );
   });
+
+  it('rejects an end time before the start time client-side, without calling the search API', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter>
+        <RoomSearchPage />
+      </MemoryRouter>,
+    );
+
+    await user.clear(screen.getByLabelText('Start time'));
+    await user.type(screen.getByLabelText('Start time'), '23:00');
+    await user.clear(screen.getByLabelText('End time'));
+    await user.type(screen.getByLabelText('End time'), '01:00');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('End time must be after start time.');
+    expect(roomsApi.searchAvailableRooms).not.toHaveBeenCalled();
+  });
 });

@@ -10,11 +10,26 @@ import { DatePicker } from '../components/DatePicker';
 import { Select } from '../components/Select';
 import type { Room } from '../types/room';
 import type { UtilisationReportRow, DayTimelineSlot } from '../types/utilisation';
-import { addIstDays, firstOfMonthInIst, istDayUtcRange, istMidnightToUtcIso, todayInIst, utcMidnightsSpanningIstDay } from '../lib/istTime';
+import { addIstDays, istDayUtcRange, istMidnightToUtcIso, startOfIstWeek, todayInIst, utcMidnightsSpanningIstDay } from '../lib/istTime';
+
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Renders a "YYYY-MM-DD" calendar-date string directly from its own parts
+// (no Date/timezone round-trip), same approach as DatePicker's own
+// formatDateLabel - avoids any risk of an IST-display conversion shifting
+// a plain calendar-date string by a day.
+function formatCalendarDate(isoLike: string): string {
+  const [year, month, day] = isoLike.split('-').map(Number);
+  return `${MONTH_LABELS[month! - 1]} ${day}, ${year}`;
+}
 
 export function AdminUtilisationPage() {
-  const [rangeStart, setRangeStart] = useState(firstOfMonthInIst());
-  const [rangeEnd, setRangeEnd] = useState(todayInIst());
+  // The report always covers exactly one IST week (Monday-Sunday), so
+  // hoursAvailable is always a full 168 for every row - a range spanning
+  // multiple weeks would mix full weeks with a clipped partial week at
+  // either end, which looked inconsistent in the table (e.g. 168 next to
+  // 120). Picking any day snaps to that day's own week's Monday.
+  const [weekOf, setWeekOf] = useState(startOfIstWeek(todayInIst()));
   const [roomId, setRoomId] = useState('');
   const [report, setReport] = useState<UtilisationReportRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,20 +47,15 @@ export function AdminUtilisationPage() {
     setError(null);
     setLoading(true);
     try {
-      // WHY rangeEnd is pushed to the START OF THE IST DAY AFTER the one
-      // picked, not midnight of the picked date itself: the backend query
-      // (api's utilisation.service.ts) filters with `start_time < rangeEnd`
-      // - an EXCLUSIVE upper bound, so it can correctly use a plain B-tree
-      // index range scan. If we sent midnight of the "To" date as-is, any
-      // booking that starts ON that date (any time after midnight IST)
-      // would be silently excluded - an admin picking "Aug 1 to Aug 31"
-      // would get a report missing all of August 31st. Advancing rangeEnd
-      // to IST midnight of Sept 1 makes the exclusive bound behave like an
-      // INCLUSIVE end date from the admin's point of view, without
-      // changing how the backend's query itself works.
-      const endOfSelectedDayIst = addIstDays(rangeEnd, 1);
+      // rangeEnd is exactly 7 IST days after weekOf (Monday) - i.e. the
+      // following Monday, exclusive. The backend's `start_time < rangeEnd`
+      // bound then covers exactly Mon-Sun of the picked week, no more and
+      // no less, so every returned row's hoursAvailable is always a full
+      // 168 (see utilisation.service.ts).
+      const rangeStart = weekOf;
+      const rangeEnd = addIstDays(weekOf, 7);
 
-      const result = await getUtilisationReport(istMidnightToUtcIso(rangeStart), istMidnightToUtcIso(endOfSelectedDayIst), {
+      const result = await getUtilisationReport(istMidnightToUtcIso(rangeStart), istMidnightToUtcIso(rangeEnd), {
         roomId: roomId || undefined,
       });
       setReport(result.report);
@@ -96,12 +106,15 @@ export function AdminUtilisationPage() {
       <h1>Room utilisation</h1>
       <form className="utilisation-filter-bar" onSubmit={handleFetch}>
         <label>
-          From
-          <DatePicker value={rangeStart} onChange={setRangeStart} required />
-        </label>
-        <label>
-          To
-          <DatePicker value={rangeEnd} onChange={setRangeEnd} required />
+          Week of
+          {/* Snap whatever day is picked to that day's own week's Monday,
+              so the report always covers exactly one IST week - see
+              startOfIstWeek's own comment for why partial weeks were
+              removed from this picker. */}
+          <DatePicker value={weekOf} onChange={(v) => setWeekOf(startOfIstWeek(v))} required />
+          <span className="utilisation-week-range-hint">
+            {formatCalendarDate(weekOf)} – {formatCalendarDate(addIstDays(weekOf, 6))}
+          </span>
         </label>
         <label>
           Room

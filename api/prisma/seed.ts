@@ -31,7 +31,7 @@ async function main() {
 
   const [projector, videoConf, whiteboard] = await Promise.all([
     prisma.attribute.upsert({ where: { name: 'projector' }, update: {}, create: { name: 'projector' } }),
-    prisma.attribute.upsert({ where: { name: 'video_conferencing' }, update: {}, create: { name: 'video_conferencing' } }),
+    prisma.attribute.upsert({ where: { name: 'video conferencing' }, update: {}, create: { name: 'video conferencing' } }),
     prisma.attribute.upsert({ where: { name: 'whiteboard' }, update: {}, create: { name: 'whiteboard' } }),
   ]);
 

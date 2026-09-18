@@ -38,6 +38,10 @@ export function RoomSearchPage() {
         setError('Please choose a date, start time, and end time.');
         return;
       }
+      if (new Date(endTime) <= new Date(startTime)) {
+        setError('End time must be after start time. (Start and end must be on the same date; overnight ranges spanning midnight are not supported.)');
+        return;
+      }
 
       const { rooms, pagination: nextPagination } = await searchAvailableRooms({
         startTime,

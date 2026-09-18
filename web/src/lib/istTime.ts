@@ -101,3 +101,16 @@ export function addIstDays(date: string, n: number): string {
   const pad = (v: number) => String(v).padStart(2, '0');
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
+
+/**
+ * The Monday of the IST calendar week containing the given IST date
+ * string. Mirrors the backend's `date_trunc('week', ...)` grouping (which
+ * also treats Monday as the IST week start) and the DatePicker's own
+ * `weekStartsOn={1}` - so "the week containing this date" means the same
+ * thing on both sides of the API boundary.
+ */
+export function startOfIstWeek(date: string): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const isoWeekday = new Date(Date.UTC(year!, month! - 1, day!)).getUTCDay() || 7; // Mon=1..Sun=7
+  return addIstDays(date, 1 - isoWeekday);
+}

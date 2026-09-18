@@ -6,6 +6,7 @@
 // row.utilisationPct, not a canvas/SVG chart.
 import type { UtilisationReportRow } from '../../types/utilisation';
 import { formatIstDate } from '../../lib/istTime';
+import { formatHoursAsHm } from '../../lib/duration';
 
 export function UtilisationTable({ report }: { report: UtilisationReportRow[] }) {
   if (report.length === 0) return <p>No confirmed bookings in this date range.</p>;
@@ -26,7 +27,7 @@ export function UtilisationTable({ report }: { report: UtilisationReportRow[] })
           <tr key={`${row.roomId}-${row.weekStart}-${i}`}>
             <td className="utilisation-room-cell">{row.roomName}</td>
             <td>{formatIstDate(row.weekStart)}</td>
-            <td>{row.hoursBooked.toFixed(1)}</td>
+            <td>{formatHoursAsHm(row.hoursBooked)}</td>
             <td>{row.hoursAvailable}</td>
             <td>
               <div className="utilisation-cell">

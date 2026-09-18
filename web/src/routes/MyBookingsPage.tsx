@@ -112,6 +112,7 @@ export function MyBookingsPage() {
                   key={b.id}
                   booking={b}
                   isSeriesMember
+                  onShorten={handleShorten}
                   onCancelOccurrence={handleCancelOccurrence}
                 />
               ))}
